@@ -25,7 +25,8 @@ export class MockHidDevice extends EventTarget {
   }
   emitStatus() {
     const s = this.state;
-    const data = new DataView(new Uint8Array([(s.charging ? 128 : 0) | s.power, (s.dpiIx << 4) | s.rateIx, s.profile << 6, 0, 0, 0, 0, 0]).buffer);
+    // 与实测 G23V2 一致：状态包第 3 字节恒为 8，不含板载序号
+    const data = new DataView(new Uint8Array([(s.charging ? 128 : 0) | s.power, (s.dpiIx << 4) | s.rateIx, 8, 0, 0, 0, 0, 0]).buffer);
     const ev = new Event('inputreport');
     ev.device = this;
     ev.reportId = 9;

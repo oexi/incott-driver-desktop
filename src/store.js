@@ -287,6 +287,29 @@ function hasStoredProfiles(devname) {
 }
 
 let statusSeen = false;
+let verifying = false;
+
+async function verifyProfileIndex() {
+  const dev = state.device;
+  if (!dev || verifying) return;
+  verifying = true;
+  try {
+    const k = await dev.readProfileIndex();
+    if (state.device !== dev || state.applying || state.pending) return;
+    if (k == null || k < 0 || k > 3 || k === state.curIndex) return;
+    if (state.firstRun) {
+      // 首次使用：直接跟随鼠标，不写入
+      state.curIndex = k;
+      persist();
+    } else {
+      switchProfile(k);
+    }
+  } catch (err) {
+    console.warn('[verifyProfileIndex]', err);
+  } finally {
+    verifying = false;
+  }
+}
 
 /** 原版 connectDevice 的第二阶段：载入本地配置，进入设置界面 */
 function enterDevice(dev, keyMap) {
@@ -357,18 +380,10 @@ function setCurDpi(index) {
 function onStatus(e) {
   const s = e.detail;
   if (state.applying) return;
-  const first = !statusSeen;
   statusSeen = true;
-  if (s.profileIndex !== state.curIndex) {
-    if (first && state.firstRun) {
-      // 首次使用：直接跟随鼠标，不写入
-      state.curIndex = s.profileIndex;
-      persist();
-    } else {
-      switchProfile(s.profileIndex);
-      return;
-    }
-  }
+  // 部分固件（实测 G23V2）的状态包里板载序号位恒为 0，原版直接据此切换会"跳回配置 1"。
+  // 这里先向鼠标读取真实序号确认，确实变化（例如按了鼠标上的配置切换键）才切换。
+  if (s.profileIndex !== state.curIndex) verifyProfileIndex();
   state.info.charging = s.charging;
   state.info.power = s.power;
   if (s.rate) {

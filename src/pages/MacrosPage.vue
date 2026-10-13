@@ -27,7 +27,6 @@ function loadDraft() {
   };
   dirty.value = false;
 }
-watch(selUid, loadDraft, { immediate: true });
 
 function markDirty() {
   dirty.value = true;
@@ -47,6 +46,12 @@ async function doDelete() {
   if (!selected.value) return;
   const ok = await deleteMacro(selUid.value);
   if (ok) selUid.value = state.macros.list[0]?.uid ?? null;
+}
+
+async function removeFromList(uid) {
+  const ok = await deleteMacro(uid);
+  // eslint-disable-next-line eqeqeq
+  if (ok && uid == selUid.value) selUid.value = state.macros.list[0]?.uid ?? null;
 }
 
 async function save() {
@@ -177,6 +182,9 @@ function togglePress(i) {
   markDirty();
 }
 
+// 必须放在 recording 等状态声明之后：立即执行时 loadDraft 会用到它们
+watch(selUid, loadDraft, { immediate: true });
+
 const usedBy = computed(() => (selUid.value == null ? [] : macroButtons(selUid.value)));
 const totalTime = computed(() => (draft.value ? draft.value.item.reduce((s, i) => s + (Number(i.delay) || 0), 0) : 0));
 const isMouseKey = (k) => /Button$/.test(k);
@@ -195,7 +203,8 @@ const isMouseKey = (k) => /Button$/.test(k);
           <Workflow :size="16" />
           <span class="mn">{{ m.name }}</span>
           <span v-if="macroButtons(m.uid).length" class="badge accent">{{ t.macroInUse }}</span>
-          <span class="muted num">{{ m.item.length }}</span>
+          <span class="muted num cnt">{{ m.item.length }}</span>
+          <span class="row-del" :title="t.delete" @click.stop="removeFromList(m.uid)"><Trash2 :size="14" /></span>
         </button>
         <div v-if="!state.macros.list.length" class="empty muted">
           <Workflow :size="28" />
@@ -328,6 +337,24 @@ const isMouseKey = (k) => /Button$/.test(k);
 }
 .mitem.on svg {
   color: var(--accent);
+}
+.row-del {
+  display: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  place-items: center;
+  color: var(--text-3);
+}
+.row-del:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.mitem:hover .row-del {
+  display: grid;
+}
+.mitem:hover .cnt {
+  display: none;
 }
 .mn {
   flex: 1;
