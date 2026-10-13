@@ -1,0 +1,36 @@
+MIT License
+
+Copyright (c) 2026 oexi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+
+Third-party materials NOT covered by the MIT License above
+（以下内容不适用上述 MIT 协议，版权归各自所有者）:
+
+  classic/                  Offline mirror of the official INCOTT web driver
+                            (HTML / JavaScript / images). © INCOTT (因科特).
+  public/mice/              Mouse product renders derived from the official
+  public/products/          INCOTT web driver. © INCOTT (因科特).
+  src/assets/fonts/         HarmonyOS Sans, © Huawei Device Co., Ltd.,
+                            distributed under the HarmonyOS Sans Fonts License.
+
+"INCOTT" and product names are trademarks of their respective owners. This
+project is an unofficial third-party tool and is not affiliated with INCOTT.

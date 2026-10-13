@@ -20,6 +20,8 @@ extraResources:
     to: icon.png
   - from: build/tray.png
     to: tray.png
+  - from: LICENSE
+    to: LICENSE.txt
 
 asar: true
 compression: maximum
