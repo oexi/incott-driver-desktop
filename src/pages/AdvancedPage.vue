@@ -4,6 +4,7 @@ import { Sparkles, Timer, Moon, Lightbulb, RotateCcw, TriangleAlert, Waves, Rule
 import * as C from '../protocol/constants.js';
 import { state, curProfile, setMotion, setFixline, setRipple, setDebounce, setSleepTime, setReceiverLED, factoryReset } from '../store.js';
 import { t } from '../i18n.js';
+import RangeScale from '../components/RangeScale.vue';
 
 const pf = curProfile;
 
@@ -19,6 +20,7 @@ watch(
   () => pf.value?.debounce,
   (v) => v != null && (deb.value = v)
 );
+const debTicks = [0, 8, 15, 30].map((v) => ({ value: v, label: v === 30 ? '30 ms' : String(v) }));
 const debPct = computed(() => `${(deb.value / C.DEBOUNCE_MAX) * 100}%`);
 
 /* 休眠 */
@@ -32,6 +34,13 @@ watch(
   (v) => v != null && (slp.value = sleepIndex(v))
 );
 const slpPct = computed(() => `${(slp.value / (C.DORMANCY_TIME.length - 1)) * 100}%`);
+// 休眠滑条按档位序号移动，刻度放在对应档位上
+const slpTicks = [
+  [10, '10s'],
+  [60, '1 min'],
+  [300, '5 min'],
+  [900, '15 min'],
+].map(([sec, label]) => ({ value: C.DORMANCY_TIME.indexOf(sec), label }));
 function fmtSleep(sec) {
   if (sec < 60) return `${sec} ${t.value.seconds}`;
   return `${sec / 60} ${t.value.minutes}`;
@@ -81,7 +90,7 @@ const ledColors = [
           :style="{ '--pct': debPct }"
           @change="setDebounce(deb)"
         />
-        <div class="scale muted num"><span>0</span><span>8</span><span>15</span><span>30 ms</span></div>
+        <RangeScale :min="C.DEBOUNCE_MIN" :max="C.DEBOUNCE_MAX" :ticks="debTicks" />
         <div v-if="deb < 4" class="warn"><TriangleAlert :size="14" />{{ t.debounceWarn }}</div>
       </section>
 
@@ -103,7 +112,7 @@ const ledColors = [
           :style="{ '--pct': slpPct }"
           @change="setSleepTime(C.DORMANCY_TIME[slp])"
         />
-        <div class="scale muted num"><span>10s</span><span>1 min</span><span>5 min</span><span>15 min</span></div>
+        <RangeScale :min="0" :max="C.DORMANCY_TIME.length - 1" :ticks="slpTicks" />
       </section>
     </div>
 
@@ -202,12 +211,6 @@ const ledColors = [
   color: var(--text-3);
   margin-left: 3px;
   font-weight: 600;
-}
-.scale {
-  display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  margin-top: 6px;
 }
 .warn {
   display: flex;

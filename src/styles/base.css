@@ -350,6 +350,7 @@ input[type='range'].range {
   appearance: none;
   width: 100%;
   height: 22px;
+  margin: 0; /* 去掉浏览器默认 2px 边距，刻度才能与圆点对齐 */
   background: transparent;
   --pct: 50%;
   cursor: pointer;
