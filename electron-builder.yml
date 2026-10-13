@@ -1,0 +1,90 @@
+appId: io.github.oexi.incott-driver
+productName: Incott Driver
+copyright: Copyright © 2026 oexi
+artifactName: incott-driver-${version}-${os}-${arch}.${ext}
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+  - "!**/*.map"
+
+extraResources:
+  - from: classic
+    to: classic
+  - from: build/icon.png
+    to: icon.png
+  - from: build/tray.png
+    to: tray.png
+
+asar: true
+compression: maximum
+afterPack: build/afterPack.cjs
+
+linux:
+  executableName: incott-driver
+  icon: build/icons
+  category: Utility
+  synopsis: INCOTT mouse driver
+  description: Desktop driver for INCOTT mice (G23 / G24 / G23V2 / G29 / FM23 / Ghero), ported from the official WebHID web driver.
+  maintainer: oexi <oexi@users.noreply.github.com>
+  desktop:
+    entry:
+      Name: Incott Driver
+      Comment: INCOTT 鼠标驱动
+      Keywords: mouse;incott;dpi;driver;
+      StartupWMClass: Incott Driver
+  target:
+    - AppImage
+    - deb
+    - rpm
+    - pacman
+    - tar.gz
+
+# 安装包附带 udev 规则，普通用户即可访问鼠标（AppImage 可在应用内一键安装）
+deb:
+  fpm:
+    - build/linux/70-incott-mouse.rules=/usr/lib/udev/rules.d/70-incott-mouse.rules
+rpm:
+  fpm:
+    - build/linux/70-incott-mouse.rules=/usr/lib/udev/rules.d/70-incott-mouse.rules
+pacman:
+  fpm:
+    - build/linux/70-incott-mouse.rules=/usr/lib/udev/rules.d/70-incott-mouse.rules
+
+win:
+  icon: build/icon.ico
+  target:
+    - nsis
+    - portable
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Incott Driver
+  artifactName: incott-driver-${version}-win-${arch}-setup.${ext}
+
+portable:
+  artifactName: incott-driver-${version}-win-${arch}-portable.${ext}
+
+mac:
+  icon: build/icon.png
+  category: public.app-category.utilities
+  target:
+    - dmg
+    - zip
+  # 无开发者证书：跳过正式签名，由 afterPack 做 ad-hoc 签名（Apple Silicon 必须有签名才能运行）
+  identity: null
+  hardenedRuntime: false
+  gatekeeperAssess: false
+
+dmg:
+  artifactName: incott-driver-${version}-mac-${arch}.${ext}
+
+publish: null

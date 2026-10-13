@@ -1,0 +1,101 @@
+name: Build & Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: '构建完成后创建 GitHub Release（需要当前 ref 为 v* 标签）'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build:web
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x64, os: ubuntu-latest, args: --linux --x64 }
+          - { name: linux-arm64, os: ubuntu-latest, args: --linux --arm64 }
+          - { name: win-x64, os: windows-latest, args: --win --x64 }
+          - { name: win-arm64, os: windows-latest, args: --win --arm64 }
+          - { name: mac-x64, os: macos-14, args: --mac --x64 }
+          - { name: mac-arm64, os: macos-14, args: --mac --arm64 }
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Linux 打包依赖（rpm / pacman）
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools
+
+      - run: npm ci
+      - run: npm run build:web
+
+      - name: electron-builder
+        run: npx electron-builder ${{ matrix.args }} --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: incott-driver-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.AppImage
+            release/*.deb
+            release/*.rpm
+            release/*.pacman
+            release/*.tar.gz
+            release/*.exe
+            release/*.dmg
+            release/*.zip
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: 生成校验和
+        run: cd artifacts && sha256sum * > SHA256SUMS.txt && cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          body: |
+            ## 下载说明
+
+            | 系统 | x64 (Intel/AMD) | arm64 |
+            |---|---|---|
+            | Windows | `win-x64-setup.exe`（安装版）/ `win-x64-portable.exe`（便携版） | `win-arm64-setup.exe` / `win-arm64-portable.exe` |
+            | macOS | `mac-x64.dmg` | `mac-arm64.dmg`（Apple Silicon） |
+            | Linux | `.AppImage` / `.deb` / `.rpm` / `.pacman` / `.tar.gz`（x64 / x86_64 / amd64） | 同名 `arm64` / `aarch64` 包 |
+
+            - **macOS**：应用未经过 Apple 公证，首次打开若提示"已损坏"，请在终端执行 `xattr -cr "/Applications/Incott Driver.app"`。
+            - **Linux**：deb / rpm / pacman 包会自动安装 udev 规则；AppImage 用户可在应用内一键安装。安装后重新插拔接收器即可。

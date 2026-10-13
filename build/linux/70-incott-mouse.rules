@@ -1,0 +1,4 @@
+# INCOTT mouse (Pixart 093A) — 允许桌面驱动通过 hidraw 访问设备
+# 522C: 2.4G 无线接收器 / 622C: 有线
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="522c", MODE="0666", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="093a", ATTRS{idProduct}=="622c", MODE="0666", TAG+="uaccess"

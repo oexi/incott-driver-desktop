@@ -1,0 +1,1110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta http-equiv="Cache-Control" content="no-cache">
+    <title>Incott Mouse Driver</title>
+    <style>
+        @font-face {
+            font-family: "HarmonyOS Sans SC";
+            src: 
+            url("https://incott.net/mouse/fonts/HarmonyOS_Sans_Regular.ttf") format("ttf"),
+            url("https://incott.net/mouse/fonts/HarmonyOS_Sans_Bold.ttf") format("ttf");
+        }
+        *{ margin: 0; padding: 0; font-family:HarmonyOS Sans SC; font-size: 12px; color:rgb(122,120,119); cursor: default; }
+        .commentfont{ font-size: 11px; }
+        a{ cursor: pointer;}
+        div{
+            vertical-align: top; 
+        }
+        html,body{ width: 100%; height: 100%; margin: 0; padding: 0; }
+        input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; border: none; }
+        input[type="color"]::-webkit-color-swatch { border: none; }
+
+        .side {width: 78%; margin: 0 auto; }
+        .navi-btn{ width: 10%; height: 100%; }
+        .navi-btn:hover{
+            background-color: rgb(5,201,98);
+        }
+        .navi-btn-ico{ width: 12px; object-fit: cover; margin-right: 4px;}
+        .page-b{
+            width: 100%; height: 100%; display: none;
+        }
+        .lightolor{background: rgb(237,233,230);}
+        .deepcolor{background: rgb(207,203,200);}
+        .keygroup{
+            position: relative; top: 4%; height: 96%;
+            display: inline-block;
+        }
+        .lstbar::-webkit-scrollbar{ width:8px; height:8px; } 
+        .lstbar::-webkit-scrollbar-thumb{ background: rgb(182,179,176); border-radius:10px; } 
+        .lstbar::-webkit-scrollbar-track{ background: rgb(205, 201, 198); }
+        .selnavi{ 
+            border-bottom: 3px solid rgb(179,176,173); 
+            width: 25%;
+            height: 100%;
+            font-size: 12px; 
+        }
+        .flex-c{display: flex; justify-content: center; }
+        .flex-v-c{display: flex; align-items: center;}
+        .flex-v-cc{display: flex; justify-content: center; align-items: center;}
+        .flex-v{display: flex; flex-direction: column;}
+        .gp_title{
+            font-weight: bold; color:black;
+        }
+        .btn_nr{
+            width: 94px; height: 26px; color:black; border-radius: 16px; background: rgb(184,180,178);
+        }
+        .arow{
+            height: 18px; object-fit: cover; margin-right: 5px;
+        }
+        .pop_tri{
+            width: 0px; height: 0px;
+            border-top: 0px solid transparent;
+            /*border-bottom: 10px solid rgb(237,233,230);*/
+            border-bottom-width: 10px;
+            border-bottom-style: solid;
+            border-bottom-color: rgb(237,233,230);
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            margin-left: 10px;
+        }
+        .pop_content{
+            width: 100%; height: 100%;
+            border-radius: 8px;
+            background: rgb(237,233,230);
+        }
+        .mac_nemu_tri{
+            width: 0px; height: 0px;
+            border-top: 0px solid transparent;
+            /*border-bottom: 10px solid rgb(237,233,230);*/
+            border-bottom-width: 7px;
+            border-bottom-style: solid;
+            border-bottom-color: rgb(237,233,230);
+            border-left: 5px solid transparent;
+            border-right: 5px solid transparent;
+            margin-left: 16px;
+        }
+        [contenteditable]:focus{ outline: none;}
+        .welcomefont{ font-size: 15px; color: rgb(90,90,90); }
+        .welfontbold{ font-size: 15px; font-weight: bold; color: rgb(90,90,90); }
+        .initfont{ font-size: 13px; color: rgb(90,90,90); }
+        .initdot_big{ width: 11px; height: 11px; border-radius: 50%; }
+        .initdot{ width: 4px; height: 4px; border-radius: 50%; background: rgb(200,200,200); }
+        .initdotsize{ width: 11px; height: 7.5%; }
+        .probtn_bkg{ background: rgb(182,178,178); }
+        .onboard_pro{ height: 36px; border-radius:5px; padding-left: 10px;}
+        .user_pro{
+            width: 100%; height: 36px; border-radius: 5px; margin-bottom: 7%; padding-left: 10px; box-sizing:border-box;
+        }
+        /*.button{width: 100%; height:5%; border-radius:6px; background: rgb(205,201,198); margin-bottom: 20px;}*/
+        .button{width: 110px; height:37px; border-radius:6px; background: rgb(205,201,198); font-weight: bold; }
+        .setting_group{border-radius: 15px; background: rgb(207,203,200);}
+        .linecolor{ border-color: rgb(164,161,160); border-style: solid; border-width:0px; }
+        .funitem{ width: 90%; height: 30px; padding-left: 20px; box-sizing: border-box; border-radius: 5px; }
+        .keymark{width: 350px; object-fit: cover;}
+        .cfgtitle{ font-size: 24px; font-weight: bold; color: black;}
+        .cfgopt{ margin-top: 25px; width: 140px; height: 34px; border-radius: 5px; padding-left: 10px; font-size: 14px; }
+        .modifer{ width: 30px; height: 20px; border: 1px solid gray; border-radius: 6px; }
+        .combobkg{ background: rgb(237,233,230); }
+        .combobtn{ background: rgb(184,180,180); }
+        .macdlgitemcolor{ background: rgb(207,203,200); }
+
+        dialog::backdrop{ background: rgba(0,0,0,0.4); }
+        .myDialog:focus-visible { outline-width: 0px; }
+        .gerDialog{ border-width: 0px; border-radius: 12px; margin: auto auto; background: white; }
+        .dgTitleColor{ color:black; }
+        .divplaceholder:empty::before{ content: attr(placeholder); }
+        .inputBkgColor{ background:black; }
+        .dpiMenuBkgColor{ background:black; }
+        .dgCancelColor{ background:black; }
+
+        .box-container{
+           width: 640px;
+           display: grid;
+           grid-template-columns: repeat(3, 1fr); /* 三列等宽 */
+           gap: 20px; /* 盒子间距 */
+           padding-top: 30px;
+           margin-left: 100px;
+        }
+        .mouse-container{
+            border:1px solid rgb(136, 134, 134);
+            text-align: center;
+            width: 200px;
+            height:230px;
+            margin-top: 3.5%;
+            margin-right: 1.5%;
+            border-radius: 10px;
+            padding: 15px;  
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+         .mouse-container:hover {
+           transform: translateY(-5px); /* 悬停效果 */
+        }
+        /* .mouse-container.no-hover:hover {
+           transform: translateY(0);
+        } */
+        .img-container{
+            width: 52%;
+            object-fit: cover;
+        }
+        /* 背景层样式 */
+        #popLayer {
+            display: none;
+            background-color: rgba(0, 0, 0, 0.5);
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 10;
+        }
+        /* 弹窗内容层样式 */
+        #popBox {
+            display: none;
+            background-color: #fff;
+            width: 450px;
+            height: 400px;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 11;
+            padding: 20px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            border-radius: 15px; 
+            border:0.5px solid rgb(136, 134, 134);
+        }
+        .upButton{
+            width:100px;
+            height:30px;
+            margin-top: 20px;
+            border-radius: 5px;
+            border: none;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+
+
+    </style>  
+    <script type="text/javascript" src="./js/define-v100.js"></script>
+    <script type="text/javascript" src="./js/text_sc-v106.js"></script>
+    <script type="text/javascript" src="./js/text_en-v106.js"></script>   
+    <script type="text/javascript" src="./js/xsed-v100.js"></script>
+    <script type="text/javascript" src="./js/dlg-v101.js"></script>
+    <script type="text/javascript" src="./js/public-v106.js"></script>
+    <script type="text/javascript" src="./js/gvarG23-v102.js"></script>
+    <script type="text/javascript" src="./js/mdev-v104.js"></script>
+    <script type="text/javascript" src="./js/chunk-v1013.js"></script>
+    <script type="text/javascript" src="./js/lib/jquery-3.7.1.min.js"></script>
+    <script type="text/javascript" src="./js/lib/savepro.js"></script>
+</head>
+<body>
+    <div id="parent" class="appbkg" style="width: 100%; height: 100%; background: rgb(237,233,230);">
+        <div id="welcome" style="width: 100%; height: 100%; display: block;">
+            <div style="width: 100%; height: 86%; display: flex;">
+                <div style="height: 100%; margin-left: 80px; margin-top: 50px;">
+                    <img id="logopng" src="" style="width: 130px; object-fit: cover; " />
+                    <!-- <img src="images/logo.png" style="width: 130px; object-fit: cover; " /> -->
+
+                </div>
+                <div style="height: 100%; width: 70%;  margin-left: 30px;">
+                    <div id="w_text1" class="lang" msg="wec1" style="margin-top: 145px; font-size: 38px; font-weight: bold; color: black;">欢迎来到因科特产品网页驱动</div>
+                    <div id="w_text2" class="lang welcomefont" msg="wec2" style="margin-top: 69px;">在这里您可以迅速配置您的因科特设备，尝试一些与众不同的设定，并按您的喜好个性化定制您的设备。</div>
+                    <div id="w_text3" class="lang welcomefont" msg="wec3" >当完成配置之后，后台都不用留，只需要保存、关闭、享受即可。</div>
+                    <div id="w_text4" class="lang welcomefont" msg="wec4" style="margin-top: 69px; color: rgb(190,190,190);">仅支持Chrome和Edge浏览器，目前支持设备 G23/G24/G23V2/零29/零39鼠标</div>
+                    <div id="w_text5" class="lang welcomefont" msg="wec5" style="color: rgb(190,190,190);">更多设备正在适配中...</div>
+                    <div id="w_init" class="lang welfontbold flex-v-cc" msg="wec6" style="width: 125px; height: 35px; border-radius: 4px; background: rgb(255,114,0); margin-top: 69px; color: black;" >
+                        初始化设备
+                    </div>
+                    <div id="w_text6" class="lang welcomefont" msg="msg92" style="margin-top: 60px;">温馨提示：需要一定时间鼠标信息同步完成后，界面才会显示鼠标电量</div>
+                </div>
+                <div style="margin-top: 57px;">
+                    <img id="w_cfgico" src="images/light/config.png" style="width: 35px; object-fit: cover;" />
+                </div>
+            </div>
+            <div id="w_bottom" style="width: 100%; height: 14%; background: rgb(207,203,200); display: flex; align-items: center; ">
+                <img id="buyico" src="images/light/buy.png" style="width: 40px; object-fit: cover; margin-left: 80px;" />
+                <!--href="javascript:buyDialog_Show();"-->
+                <div style="width: 75%;"><a id="buylink" class="lang welcomefont" msg="wec7" style="margin-left: 25px;">购买 因科特 设备</a></div>
+                <div id="w_lang" class="welfontbold flex-v-cc" style="margin-left: 48px; width: 130px; height: 35px; border-radius: 4px; background: rgb(255,114,0); color: black;" >
+                    English
+                </div>
+            </div>
+        </div>
+        <div id="init" style="width: 100%; height: 100%; display: none;">
+            <div style="width: 100%; height: 100%; display: flex;">
+                <div class="flex-v-c" style="width: 24%; height: 100%;">
+                    <div style="display: flex; justify-content: space-between; flex-direction: column; width: 100px; height: 250px; margin-left: 65px;">
+                        <div id="step1" class="flex-v-cc initdotsize" style="width: 100%; justify-content: left;">
+                            <div id="dot" class="initdot_big" style="background: rgb(255,114,0); "></div>
+                            <div id="text" class="lang initfont" msg="wec8" style="padding-left: 8px; color: rgb(255,114,0);">连接</div>
+                        </div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div id="step2" class="flex-v-cc initdotsize" style="width: 100%; justify-content: left;">
+                            <div id="dot" class="initdot_big" style="border: 1px solid rgb(120,120,120);"></div>
+                            <div id="text" class="lang initfont" msg="wec9" style="padding-left: 8px;">允许</div>
+                        </div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div class="flex-v-cc initdotsize"><div class="initdot"></div></div>
+                        <div id="step3" class="flex-v-cc initdotsize" style="width: 100%; justify-content: left;">
+                            <div id="dot" class="initdot_big" style="border: 1px solid rgb(120,120,120);"></div>
+                            <div id="text" class="lang initfont" msg="wec10" style="padding-left: 8px;">设置</div>
+                        </div>
+                    </div>
+                </div>
+                <div style="width: 45%; height: 100%;">
+                    <div id="i_text1" class="lang" msg="wec11" style="margin-top: 100px; font-size: 35px; font-weight: bold; color: black;">允许浏览器连接到您的设备</div>
+                    <div id="i_text2" class="lang initfont" msg="wec12" style="margin-top: 50px;">这将在URL栏旁边打开一个设备列表，在列表中选择您的设备，然后单击“连接”。</div>
+                    <div id="i_allow" class="lang welfontbold flex-v-cc" msg="wec13" style="width: 160px; height: 35px; border-radius: 4px; background: rgb(255,114,0); margin-top: 70px; color: black;" >
+                        允许浏览器访问
+                    </div>
+                    <div id="sam" class="flex-v-cc" style="width: 440px; height: 250px; border-radius: 10px; background: rgb(207,203,200); margin-top: 50px;" >
+                        <img id="sampng" src="" style="width: 400px; object-fit: cover;" />
+                    </div>
+                    <div id="i_grd1" class="flex-v-c" style="width: 440px; height: 60px; border-radius: 10px; background: rgb(207,203,200); margin-top: 25px;" >
+                        <img id="warnpng" src="" style="width: 16px; object-fit: cover; margin-left: 20px;" />
+                        <div id="i_text3" class="lang initfont" msg="wec14" style="margin-left: 10px;">您的设备如果没有显示，请重新拔插一下，然后重试</div>
+                    </div>
+                    <div id="i_grd2" class="flex-v-c" style="display: none; width: 440px; height: 60px; border-radius: 10px; background: rgb(207,203,200); margin-top: 25px;" >
+                        <img id="i_grd2_ico" src="" style="width: 16px; object-fit: cover; margin-left: 20px;" />
+                        <div id="i_text4" class="lang initfont" msg="wec15" style="margin-left: 10px;">鼠标接收器配对</div>
+                        <a class="lang initfont" msg="wec16" href="" style="color:rgb(255,114,0); margin-left: 10px;">点击配对</a>
+                    </div>
+                </div>
+                <div id="plug-dev" style="height: 100%;  display: none; width:25%">
+                    <div id="plug-d" style="margin-top: 100px; width: 290px; height: 240px;padding: 15px; border-radius: 10px; background: white; display: flex; justify-content: space-between;">
+                        <div style="width: 28%; ">
+                            <div id="devname1" style="width: 100%; font-size: 20px; font-weight: bold; color: black;">G23</div>
+                            <div style="width: 100%; margin: 0 auto; display: flex; justify-content: center;" >
+                                <div style="width: 50%;"><img id="connect-ico" src="images/usb.png" style="height: 11px; object-fit: cover;" /></div>
+                                <div style="width: 50%;"><img id="wireless-ico" src="images/8k.png" style="height: 11px; object-fit: cover;" /></div>
+                            </div>
+                        </div>
+                        <div class="flex-v-cc" style="width: 46%; height: 100%;">
+                            <img id="mouse-ico" src="images/mouseG23.png" style="width: 90%; object-fit: cover;" />
+                        </div>
+                        <div style="width: 18%;display: flex; ">
+                            <div id="power" style="font-size: 10px; width: 50%;" >100%</div>
+                            <div><img id="power-ico" src="images/power/0.png" style="width: 15px; object-fit: cover; margin-left: 4px;" /></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div id="cfg" style="width: 100%; height: 100%; display: none;">
+            <div style="width: 100%; height: 100%; display: flex;">
+                <div id="cfgleft" style="width: 24%; height: 100%; padding-left: 70px; box-sizing: border-box; display: flex; flex-direction: column; background: rgb(207,203,200);">
+                    <div class="lang flex-v-c cfgtitle" msg="wec10" style="margin-top: 80px; margin-bottom: 30px; padding-left: 10px; font-size: 36px;">设置</div>
+                    <div id="cfgcat1" class="lang flex-v-c cfgopt" msg="wec23" style="background: gray;">界面设置</div>
+                    <div id="cfgcat2" class="lang flex-v-c cfgopt" msg="wec24">固件工具</div>
+                    <!--<div id="cfgcat3" class="lang flex-v-c cfgopt" msg="wec25">配对设置</div>-->
+                </div>
+                <div id="cfgright" style="width: 66%; height: 100%; padding-left: 170px; box-sizing: border-box; ">
+                    <div id="cfg_ui" style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+                        <div class="lang flex-v-c cfgtitle" msg="wec17" style="margin-top: 120px; padding-left: 10px;">主题:</div>
+                        <div id="scheme1" class="lang flex-v-c cfgopt" msg="wec18">明亮主题</div>
+                        <div id="scheme2" class="lang flex-v-c cfgopt" msg="wec19">深色主题</div>
+                        <div id="scheme3" class="lang flex-v-c cfgopt" msg="wec43">粉色主题</div>
+
+                        <div class="lang flex-v-c cfgtitle" msg="wec20" style="margin-top: 80px; padding-left: 10px;">语言:</div>
+                        <div id="LangOpt1" class="flex-v-c cfgopt">English</div>
+                        <div id="LangOpt2" class="flex-v-c cfgopt">简体中文</div>
+
+                        <div class="lang flex-v-c cfgtitle" msg="wec21" style="margin-top: 90px; padding-left: 10px;">意见反馈:</div>
+                        <div class="flex-v-c cfgopt"><a href="javascript:void(0)" style="font-size: 14px;" class="lang" msg="wec22">遇见问题？点击反馈</a></div>                       
+                    </div>
+                    <!-- <div id="cfg_ui2" style="display: none;">
+                        <div class="lang flex-v-c cfgtitle" msg="msg81" style="margin-top: 120px;">升级固件及驱动</div>
+                        <div style="display: flex; flex-direction: row; margin-top: 25px;">
+                            <div style="width: 52%;">
+                                <div class="lang flex-v-c" msg="msg83" style="font-size: 14px;">鼠标及接收器升级固件</div>
+                                <div id="msgcol" class="lang flex-v-c" msg="msg87" style="font-size: 11.5px; color:rgb(0,128,255)">此次升级固件仅限于G23/G24鼠标及接收器，升级之后增加鼠标对网页驱动的支持</div>
+                            </div>
+                            <div style="display: flex; flex-direction: row; margin-left: 16%;">
+                                <div class="lang dgTitleColor" msg="msg82" style="font-size: 14px; margin-right: 10px;">立即下载</div>
+                                <a href="update/g23g24/因科特-原相系列鼠标升级包(1.3.8.3.6.3)-im2324(最新网页驱动).zip">
+                                    <img id="updimg1" src="images/light/import.png" style="width: 18px; object-fit: cover; cursor: pointer;">
+                                </a>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: row; margin-top: 25px;">
+                            <div style="width: 52%;">
+                                <div class="lang flex-v-c" msg="msg84" style="font-size: 14px;">鼠标及接收器蓝牙升级固件</div>
+                                <div id="msgcol2" class="lang flex-v-c" msg="msg88" style="font-size: 11.5px; color:rgb(0,128,255)">此此次升级固件仅限于</div>
+                            </div>
+                            <div style="display: flex; flex-direction: row; margin-left: 16%;">
+                                <div class="lang dgTitleColor" msg="msg82" style="font-size: 14px; margin-right: 10px;">立即下载</div>
+                                <a href="update/g23g24/因科特-原相系列最新蓝牙升级包(1.3.8.3.6.2)-im2324-最新蓝牙.zip">
+                                    <img id="updimg2" src="images/light/import.png" style="width: 18px; object-fit: cover; cursor: pointer;">
+                                </a>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: row; margin-top: 25px;">
+                            <div style="width: 52%;">
+                                <div class="lang flex-v-c" msg="msg85" style="font-size: 14px;">鼠标PC端最新驱动</div>
+                                <div id="msgcol3" class="lang flex-v-c" msg="msg86" style="font-size: 11.5px; color:rgb(0,128,255)">此驱动软件对应鼠标及接收器升级固件</div>
+                            </div>
+                            <div style="display: flex; flex-direction: row; margin-left: 16%;">
+                                <div class="lang dgTitleColor" msg="msg82" style="font-size: 14px; margin-right: 10px;">立即下载</div>
+                                <a href="update/g23g24/incott-app-(最新PC驱动).zip">
+                                    <img id="updimg3" src="images/light/import.png" style="width: 18px; object-fit: cover; cursor: pointer;">
+                                </a>
+                            </div>
+                        </div>
+                        <div id="up6" class="lang flex-v-c cfgtitle" msg="msg89" style="margin-top: 50px; ">特别提醒</div>
+                        <div id="upd2" class="lang flex-v-c dgTitleColor" msg="msg90" style="font-size: 14px; margin-top: 15px;">升级前请阅读以下内容</div>
+                        <div id="upd2" class="lang flex-v-c dgTitleColor" msg="msg91" style="font-size: 14px; margin-top: 15px;">全部升级完成后按下Ctrl+F5刷新驱动页面</div>
+                    </div> -->
+                    <div id="cfg_ui2" style="display: none;">
+                        <div class="lang flex-v-c cfgtitle" msg="msg81" style="margin-top: 120px;margin-left:100px;">固件下载：</div>
+                        <div class="box-container">
+                          <!-- 第一行盒子 -->
+                          <div class="mouse-container" id="box_bac1" onclick="popBox('Ghero系列')">
+                            <img src="images/mouseGhero.png" alt="Ghero系列" class="img-container">
+                            <div id="text_tips1" msg="msg91">Ghero系列</div>
+                          </div>
+                          <div class="mouse-container" id="box_bac2" onclick="popBox('G23系列')">
+                            <img src="images/mouseG23.png" alt="G23系列" class="img-container">
+                            <div id="text_tips2" msg="msg97">G23系列</div>
+                          </div>
+                          <div class="mouse-container" id="box_bac3" onclick="popBox('G24系列')">
+                            <img src="images/mouseG24.png" alt="G24系列" class="img-container">
+                            <div id="text_tips3" msg="msg98">G24系列</div>
+                          </div>
+
+                          <!-- 第二行盒子 -->
+                          <div class="mouse-container" id="box_bac4" onclick="popBox('零29系列')">
+                            <img src="images/mouseG29.png" alt="零29系列" class="img-container">
+                            <div id="text_tips4" msg="msg94">零29系列</div>
+                          </div>
+                          <div class="mouse-container" id="box_bac5" onclick="popBox('零39系列')">
+                            <img src="images/mouseFM23.png" alt="零39系列" class="img-container">
+                            <div id="text_tips5" msg="msg95">零39系列</div>
+                          </div>
+                          <div class="mouse-container" id="box_bac6" onclick="popBox('G23V2系列')">
+                            <img src="images/mouseG23V2.png" alt="G23V2系列" class="img-container">
+                            <div id="text_tips6" msg="msg96">G23V2系列</div>
+                          </div>
+                        </div>
+                        <div id="popLayer" onclick="closeBox()"></div>
+                         <!-- 弹窗内容层 -->
+                         <div id="popBox" >
+                         <div id="dialog-title" style="font-size: x-large;font-weight: bold;margin-left:10px" msg="123"></div>
+                         <div style="display: flex; align-items: center;justify-content: space-between; ">
+                            <div>
+                                <p id="dialog-text1" style="font-size: larger; margin-top: 20px;margin-left:10px" msg=""></p>
+                                <p id="dialog-text4" style="font-size:0.8rem; margin-left:10px" msg="118">升级支持APP驱动保存4个切换配置，3950版本鼠标增加20000fps设定。</p>
+                            </div>
+                            <button id="upButton1" class="upButton" style="background: rgb(240,58,118);color:rgb(87,7,34);" msg="msg109" onclick="downloadFirmware('Web')">下载固件</button>
+                         </div>
+                         <div style="display: flex; align-items: center;justify-content: space-between;">
+                            <div>
+                                <p id="dialog-text2" style="font-size: larger; margin-top: 20px;margin-left:10px" msg=""></p>
+                                <p id="dialog-text5" style="font-size:0.8rem; margin-left:10px" msg="119">升级完G23系列，专用固件(1.4.0.3)然后安装此驱动。</p>
+                            </div>
+                            <button id="upButton2" class="upButton" style="background: rgb(240,58,118);color:rgb(87,7,34);" msg="msg109" onclick="downloadFirmware('APP')">下载驱动</button>
+                         </div>
+                         <div style="display: flex; align-items: center;justify-content: space-between;">
+                            <div>
+                                <p id="dialog-text3" style="font-size: larger; margin-top: 20px;margin-left:10px" msg=""></p>
+                                <p id="dialog-text6" style="font-size:0.8rem; margin-left:10px" msg="120">升级支持鼠标蓝牙模式连接。</p>
+                            </div>
+                            <button id="upButton3" class="upButton" style="background: rgb(240,58,118);color:rgb(87,7,34);" msg="msg109" onclick="downloadFirmware('Bluetooth')">下载固件</button>
+                         </div>
+                           <p id="dialog-title1" msg="msg84" style="font-size: larger;margin-left:10px;margin-top: 50px;margin-bottom: 10px;">升级操作步骤：</p>
+                           <div class="steps" style="margin-left:10px">
+                             <p msg="msg85">鼠标WEB固件升级步骤：</p>
+                             <p msg="msg86">第一步鼠标插线连接电脑点击鼠标升级等待升级完成；</p>
+                             <p msg="msg87">第二步接收器插上电脑点击接收器升级等待升级完成；</p>
+                             <p style="margin-bottom:10px;" msg="msg88">温馨提示:如无法移动请重新对码。</p>
+                             <p msg="msg89">鼠标蓝牙固件升级：</p>
+                             <p msg="msg90">鼠标插线连接电脑点击鼠标升级等待升级完成即可。</p>
+                           </div>
+                         </div>
+                    </div>    
+                
+                </div>
+                <div id="cfg_return" style="margin-top: 90px;">
+                    <img id="backpng" src="images/back.png" style="width: 25px; object-fit: cover;"/>
+                    <a class="lang" msg="wec26" href="javascript:void(0)" style="font-size: 23px;">返回</a>
+                </div>
+            </div>
+        </div>
+        <div id="app" style="width: 100%; height: 100%; display: none; "> <!--display: flex-->
+            <div id="side" class="deepcolor linecolor" style="width: 15%; height: 100%; border-right-width:1px;">
+                <div id="side-top-l" style="height: 5%;"></div>
+                <div id="curdev" class="side" style="width: 80%; height: 8%; border-radius:5px; background: rgb(237,233,230); font-size: 13px;">
+                    <div class="flex-v-c" style="width: 90%; height: 40%; margin: 0 auto; justify-content:space-between; ">
+                        <div class="lang" msg="msg1" style="width: 45%;">当前设备</div>
+                        <div style="width: 25%;">
+                            <img id="connect-ico" src="images/24g.png" style="height: 12px; object-fit: cover;"></img>
+                            <img id="wireless-ico" src="images/1k.png" style="height: 12px; object-fit: cover;"></img>                          
+                        </div>
+                        <div class="flex-v-c"  style="width: 30%; justify-content: flex-end;">
+                            <span id="power">--</span>
+                            <img id="power-ico" src="images/power/0.png" style="height: 11px; object-fit: cover; margin-left: 4px; "></img>
+                        </div>
+                    </div>
+                    <div class="flex-v-c" style="width: 90%; height: 60%; margin: 0 auto; justify-content:space-between; ">
+                        <div id="devname2" class="flex-v-c" style="width: 80%; height: 100%; font-size: 19px; font-weight: bold; color:black;">
+                            G23
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="height: 52px; width: 80%; margin: 0 auto; display: flex; ">
+                    <div id="onboard_title" class="lang flex-v-c" msg="msg10" style="height: 100%; width: 75%; padding-left: 10px; box-sizing: border-box;">
+                        板载配置文件
+                    </div>
+                    <div class="flex-v-c" >
+                        <img id="import_onboard" src="images/light/import.png" style="width: 16px; object-fit: cover; margin-right: 8px; "/>
+                        <img id="export_onboard" src="images/light/export.png" style="width: 16px; object-fit: cover;"/>
+                        <input type="file" id="import_onboard_f" accept=".ict" style="display: none;"/>
+                    </div>
+                </div>
+                <div id="onboard" class="side" style="width: 80%; height: 21%;  margin: 0 auto; display: flex; flex-direction: column; justify-content: space-between; ">  
+                    <div id="onboard1" class="flex-v-c onboard_pro probtn_bkg">板载配置1</div>
+                    <div id="onboard2" class="flex-v-c onboard_pro probtn_bkg">板载配置2</div>
+                    <div id="onboard3" class="flex-v-c onboard_pro probtn_bkg">板载配置3</div>
+                    <div id="onboard4" class="flex-v-c onboard_pro probtn_bkg">板载配置4</div>
+                </div>
+                <div id="split" class="linecolor" style="height: 6%; width: 80%; margin: 0 auto; border-bottom-width:1px"></div>
+                <div id="import_pro_title" class="lang flex-v-c" msg="msg12" style="height: 6%; width: 80%; margin: 0 auto; padding-left: 10px; box-sizing: border-box;">
+                    本地配置文件加载
+                </div>
+                <div id="import_pro_g" class="side" style="width: 80%; height: 6%;  margin: 0 auto; display: flex; justify-content: space-between; align-items: center; ">
+                    <div id="new_pro" class="lang flex-v-c" msg="msg13" style="width: 71%; height: 100%; border-radius: 4px; background: rgb(182,178,178); padding-left: 10px; box-sizing: border-box;">
+                        + 自定义配置文件
+                    </div>
+                    <img id="import_pro" src="" style="width: 20px; object-fit: cover; margin-right: 10px; "/>
+                    <input type="file" id="import_p" accept=".ict" style="display: none;"/>
+                </div>
+                <div id="prolist_p" class="side lstbar" style="width: 80%; height: 28%;  margin: 0 auto; margin-top: 7%; overflow: auto; ">
+                    <div id="prolist" style="height: 100%;">
+                    </div>
+                </div>
+
+                <div id="config_btn" class="side flex-v-cc" style="width: 80%; height: 4%; margin: 0 auto; border-radius: 4px; margin-top: 15%; background:rgb(182,178,178);">
+                    <img id="config_btn_ico" src="" style="width: 15px; object-fit: cover; margin-right: 10px; "/>
+                    <div class="lang" msg="msg9">设置</div>
+                </div>
+            </div>
+            <div id="setting" style="width: 85%; height: 100%;">
+                <div id="side-top-r" class="deepcolor" style="height: 5%;"></div>
+                <div id="navi" class="deepcolor" style="height: 4%; display: flex; padding-left: 20px;">
+                    <div id="s_key" class="navi-btn flex-v-cc">
+                        <!--<img src="images/msfunkey_nr.png" class="navi-btn-ico"/><div id="s_key_text" class="lang" msg="msg2"></div>-->
+                        <img class="navi-btn-ico"/>
+                        <div id="s_key_text" class="lang" msg="msg2"></div>
+                    </div>
+                    <div id="s_dpi" class="navi-btn flex-v-cc">
+                        <img class="navi-btn-ico"/>
+                        <div id="s_dpi_text" class="lang" msg="msg3">性能设置</div>
+                    </div>
+                    <div id="s_sys" class="navi-btn flex-v-cc">
+                        <img class="navi-btn-ico"/>
+                        <div id="s_sys_text" class="lang" msg="msg4">综合设置</div>
+                    </div>
+                </div>
+                <div id="config" style="width: 100%; height: 91%;" >
+                    <div id="page_key" class="page-b" style="display: flex;">
+                        <div id="buttons" style="margin-left: 4%; margin-top: 3%;">
+                            <!--<div class="flex-v-c" style="margin-bottom: 20px;">
+                                <div id="kindex1" style="font-size:32px; font-weight: bold; margin-right: 10px;">3</div>
+                                <div id="button1" class="flex-v-cc button">Left</div>
+                            </div>
+                            <div class="flex-v-c" style="margin-bottom: 20px;">
+                                <div id="kindex2" style="font-size:32px; font-weight: bold; margin-right: 10px;">3</div>
+                                <div id="button2" class="flex-v-cc button" style="background: pink;">Right</div>
+                            </div>-->
+                        </div>
+                        <div id="functions" class="setting_group" style="margin-left: 7%; margin-top: 3%; width: 24%; height: 83%; border-radius: 15px;">
+                            <div id="sel" class="flex-v-cc" style="width: 90%; height: 8%; margin: 0 auto;">
+                                <div id="sel1" class="lang selnavi flex-v-cc" msg="msg5">系统按键</div>
+                                <div id="sel2" class="lang selnavi flex-v-cc" msg="msg6">键盘按键</div>
+                                <div id="sel3" class="lang selnavi flex-v-cc" msg="msg7">特殊按键</div>
+                                <div id="sel4" class="lang selnavi flex-v-cc" msg="msg8">录制宏</div>
+                            </div>
+                            <div id="fun" class="lstbar" style="width: 90%; height: 87%; overflow: auto; margin: auto; margin-top: 5%;">
+                                <div id="fun_list1" style="height: 100%; ">
+                                    <!--<div class="funitem flex-v-c">左键</div>-->
+                                </div>
+                                <div id="fun_list2" style="height: 100%; display: none;"></div>
+                                <div id="fun_list3" style="height: 100%; display: none; overflow: hidden;">
+                                    <div style="width: 100%; height: 100%; margin: 0 auto; display: flex; flex-direction: column; align-items: center;">
+                                        <div id="gp_fire" class="combobkg" style="width: 100%;  border-radius: 15px; margin-bottom: 15px;">
+                                            <div class="flex-v-c linecolor" style="width: 90%; height: 30px; margin: 0 auto; padding-top: 8px; border-bottom-width:1px; ">
+                                                <img id="arowpng1" class="arow" src="images/arow.png"/>
+                                                <div class="lang gp_title" msg="fire">火力键</div>
+                                            </div>
+                                            <div style="width: 90%; margin: 0 auto;">
+                                                <div class="lang" msg="fire1" style="margin-top: 10px; margin-bottom: 20px;">根据设置的间隔和次数持续点击左键</div>
+                                                <div style="display: flex; align-items: center;">
+                                                    <div class="lang" msg="fire2" style="margin-right: 4px;"></div>
+                                                    <div id="fireT" style="width: 40px; height: 20px; border: 1px solid rgb(137,135,133); border-radius:6px;" ></div>
+                                                    <div class="lang" msg="fire3" style="margin-left: 4px; margin-right: 20px;">ms</div>
+                                                    <div class="lang"  msg="fire4" style="margin-right: 4px;"></div>
+                                                    <div id="fireL" style="width: 35px; height: 20px; border: 1px solid rgb(137,135,133); border-radius:6px;" ></div>
+                                                    <div class="lang"  msg="fire5" style="margin-left: 4px;">次</div>
+                                                </div>
+                                                <div class="lang" msg="fire6" style="margin-top: 24px; margin-bottom: 8px;"></div>
+                                                <div id="fireSave" class="lang flex-v-cc combobtn" msg="save" style="width: 100px; height: 28px; margin: 0 auto; border-radius: 6px; margin-bottom: 10px;">保存</div>
+                                            </div>
+                                        </div>
+                                        <div id="gp_combo" class="combobkg" style="width: 100%; height: 25%; border-radius: 15px; margin-bottom: 15px;">
+                                            <div class="flex-v-c linecolor" style="width: 90%; height: 30px; margin: 0 auto; padding-top: 8px; border-bottom-width:1px;">
+                                                <img id="arowpng2" class="arow" src="images/arow.png"/>
+                                                <div class="lang gp_title" msg="combo">组合键</div>
+                                            </div>
+                                            <div style="width: 90%; height: 45%; margin: 0 auto; display: flex; align-items: center; justify-content: space-between;">
+                                                <div class="flex-v-cc modifer" id="combo_ctrl" modflag="0">Ctrl</div>
+                                                <div class="flex-v-cc modifer" id="combo_shift" modflag="0">Shift</div>
+                                                <div class="flex-v-cc modifer" id="combo_alt" modflag="0">Alt</div>
+                                                <div class="flex-v-cc modifer" id="combo_win" modflag="0">Win</div>
+                                                <div class="flex-v-cc modifer" style="width: 10px; border: 0px;">+</div>
+                                                <div id="combo_key" style="width: 60px; height: 20px; border: 1px solid rgb(137,135,133); border-radius:6px;" ></div>
+                                            </div>
+                                            <div id="comboSave" class="lang flex-v-cc combobtn" msg="save" style="width: 100px; height: 28px; margin: 0 auto; border-radius: 6px;">保存</div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                                <div id="fun_list4" style="height: 100%; display: none; position: relative;">
+                                    <div id="macrolist" class="lstbar" style="width: 100%; overflow: auto; ">
+                                        <!--<div style="width: 94%; height: 28px; border-radius: 5px; background: pink; display: flex; justify-content: space-between; align-items: center;">
+                                            <div style="padding-left: 20px;">macro 1</div>
+                                            <img src="images/dropdown.png" style="width: 15px; object-fit: cover; margin-right: 10px;"/>
+                                        </div>-->
+                                    </div>
+                                    <div style="display: flex; width: 100%; margin-top: 20px; padding-left: 24%; box-sizing: border-box;" >
+                                        <div id="new_mac" class="flex-v-cc" style="width: 90px; height: 32px; border-radius: 5px; font-weight: bold; margin-right: 14px; background: rgb(232,104,0); ">
+                                            <img id="new_mac_ico" src="images/light/new.png" style="width: 12px; object-fit: cover; margin-right: 8px;"/>
+                                            <div id="new_mac_text" class="lang" msg="mac1" style="color: black;" >新建宏</div>
+                                        </div>
+                                        <div id="import_mac" class="flex-v-cc" style="width: 90px; height: 32px; border-radius: 5px; font-weight: bold; background: white;">
+                                            <img id="import_mac_ico" src="images/warn.png" style="width: 13px; object-fit: cover; margin-right: 8px;"/>
+                                            <div class="lang" msg="mac2" >载入宏</div>
+                                        </div>
+                                    </div>
+                                    <input type="file" id="import_macro" accept=".icm" style="display: none;"/>
+
+                                    <div id="mac_nemu" style="width: 65px; position: absolute; display: none; z-index: 98;">
+                                        <div class="mac_nemu_tri"></div>
+                                        <div id="mac_nemu_content" style="width: 100%; border-radius: 5px;">
+                                            <div id="mac_nemu_edit" class="lang flex-v-cc lightcolor" msg="msg49" style="height: 25px;"></div>
+                                            <div id="mac_nemu_export" class="lang flex-v-cc lightcolor" msg="msg55" style="height: 25px;"></div>
+                                            <div id="mac_nemu_del" class="lang flex-v-cc lightcolor" msg="msg46" style="height: 25px;"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-left: 13%; margin-top: 3%; width: 37%;">
+                            <div style="display: flex; justify-content: right; align-items: center;">
+                                <div class="lang" msg="msg62" style="margin-right: 10px;"></div>
+                                <img id="invertRL" src="images/sw_off.png" style="height: 18px; object-fit: cover; margin-right: 5px;">                               
+                            </div>
+                            <div id="kmark" style="margin-top: 10%;">                 
+                                <!--<img class="keymark" src="images/dark/g23/0.png">-->
+                            </div>
+                        </div>
+                    </div>
+                    <div id="page_dpi" class="page-b" style="position: relative;">
+                        <div style="width: 90%; height: 90%; margin: auto; position: absolute; top:0;left:0;right:0;bottom:0; display: flex; flex-wrap: wrap; justify-content:space-between; align-content: flex-start;">
+                            
+                            <div id="gp_dpi" class="setting_group" style="width: 100%;">
+                                <div class="flex-v-c linecolor" style="width: 97%; height: 37px; margin: 6px auto; border-bottom-width:1px; ">
+                                    <img id="arowpng3" class="arow" src="images/arow.png"/>
+                                    <div class="lang gp_title" msg="msg14">DPI灵敏度设置</div>
+                                </div>
+                                <div style="width: 95%; margin: 0 auto;" >
+                                    <div style="width: 100%; height: 75px; display: flex; align-items: center; justify-content: space-between; ">
+                                        <div id="dpi_grid" style="height: 100%; width: 65%; position: relative; display: flex;">
+                                            <div id="dpi_edit" style="width: 180px; height: 100px; position: absolute; left: 50px; display: none; z-index: 99;">
+                                                <div class="pop_tri"></div>
+                                                <div id="pop_cont" class="pop_content flex-v-cc">
+                                                    <div style="width: 85%; height: 85%; " >
+                                                        <div style="display: flex; margin-bottom: 10px;">
+                                                            <div id="dpi_color" style="width: 16px; height: 16px; margin-right: 10px;"></div>
+                                                            <!--<input type="color" id="dpi_color" style="width: 16px; height: 16px; border: none; padding: 0; outline: none; background: transparent; cursor: pointer;"/>-->
+                                                            <div id="dpi_hex" class="flex-v-c" style="width: 30%; height: 50%; ">#ff0866</div>
+                                                        </div>
+                                                        <div style="width: 100%; display: flex; align-items: center; justify-content: space-evenly;">
+                                                            <div id="dpi_nmx">X</div>
+                                                            <div id="dpi_input" style="width: 48px; height: 18px; border-bottom: 1px solid rgb(137,135,133);" ></div>
+                                                            <div id="dpi_nmy" style="margin-left: 10px;">Y</div>
+                                                            <div id="dpi_input_y" style="width: 48px; height: 18px; border-bottom: 1px solid rgb(137,135,133);" ></div>
+                                                        </div>
+                                                        <div style="width: 100%; margin-top: 18px; display: flex; align-items: center; flex-direction: row-reverse;">
+                                                            <div id="dpi_edit_ok" class="lang flex-v-cc deepcolor" msg="ok" style="width: 60px; height: 22px; "></div>
+                                                            <div id="dpi_edit_cancel" class="lang flex-v-cc deepcolor" msg="cancel" style="width: 60px; height: 22px; margin-right: 10px;"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+    
+                                            <div id="dpi_gp" style="height:100%; display: flex">
+                                                <!--<div id="dpi_grid_p1" class="flex-v" style="align-items: center; justify-content: center; margin: 0 28px; background: pink; ">
+                                                    <div class="flex-v-cc">
+                                                        <img id="dpi_grid1" src="images/dark/modify.png" style="width: 12px; object-fit: cover;"/>
+                                                        <div class="flex-v">
+                                                            <div style="display: flex;">
+                                                                <div style="margin: 0 8px;">X</div>
+                                                                <div id="dpival_x" style="font-weight: bold;">400</div>
+                                                            </div>
+                                                            <div style="display: flex;">
+                                                                <div style="margin: 0 8px;">Y</div>
+                                                                <div id="dpival_y" style="font-weight: bold;">8900</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div id="dpicolor1" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: red;"></div>
+                                                </div>
+
+                                                <div id="dpi_grid_p2" class="flex-v" style="align-items: center; justify-content: center; margin: 0 28px; ">
+                                                    <div class="flex-v-cc">
+                                                        <img id="dpi_grid1" src="images/dark/modify.png" style="width: 12px; object-fit: cover;"/>
+                                                        <div class="flex-v">
+                                                            <div style="display: flex;">
+                                                                <div style="margin: 0 8px;">X</div>
+                                                                <div id="dpival_x" style="font-weight: bold;">400</div>
+                                                            </div>
+                                                            <div style="display: flex;">
+                                                                <div style="margin: 0 8px;">Y</div>
+                                                                <div id="dpival_y" style="font-weight: bold;">8000</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div id="dpicolor1" style="width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; background: red;"></div>
+                                                </div>-->
+                                            </div>
+                                            <!--<div id="add_dpi_gp" style="display: inline-block; height: 100%;">
+                                                <div class="flex-v-cc" style="height: 100%; margin-left: 5px;">
+                                                    <div style="margin-right: 8px;">挡位数</div>
+                                                    <img id="dpi_level_add" src="images/dpi_add.png" style="width: 15px; object-fit: cover;"/>
+                                                    <div id="dpi_level" class="linecolor inputBkgColor flex-v-cc" style="width: 50px; height: 24px; border-radius: 5px; border-width: 1px; margin: 0 8px;">
+                                                        6
+                                                    </div>
+                                                    <img id="dpi_level_sub" src="images/dpi_sub.png" style="width: 15px; object-fit: cover;"/>
+                                                </div>
+                                            </div> -->
+                                            <div id="dpi_level_nemu" style="position: absolute; left: 50px; display: none; z-index: 98;">
+                                                <div id="dpi_level_nemu_content" class="dpiMenuBkgColor linecolor" style="width: 50px; display: flex; flex-direction: column; border-width: 1px;">
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">1</div>
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">2</div>
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">3</div>
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">4</div>
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">5</div>
+                                                    <div class="flex-v-cc" style="width: 100%; height: 19px;">6</div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div id="add_dpi_gp" style="display: inline-block; height: 100%; padding-right: 20px; ">
+                                            <div class="flex-v-cc" style="height: 100%; ">
+                                                <div class="lang" msg="msg80" style="margin-right: 8px; width: 40px;">挡位数</div>
+                                                <img id="dpi_level_add" src="images/dpi_add.png" style="width: 15px; object-fit: cover;"/>
+                                                <div id="dpi_level" class="linecolor inputBkgColor flex-v-cc" style="width: 50px; height: 24px; border-radius: 5px; border-width: 1px; margin: 0 8px;">
+                                                    6
+                                                </div>
+                                                <img id="dpi_level_sub" src="images/dpi_sub.png" style="width: 15px; object-fit: cover;"/>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="flex-v-c">
+                                            <div class="lang" msg="msg59" style="margin-right: 10px;">XY轴</div>
+                                            <img id="dpi_xy_btn" src="images/sw_off.png" style="height: 18px; object-fit: cover;"/>
+                                        </div>
+
+                                    </div>
+                                    <div class="lang commentfont" msg="msg16" style="margin-bottom: 18px;">DPI即鼠标移速，使用鼠标的DPI按键可快速切换DPI挡位，通过上方编辑或拖动滑块修改DPI设置</div>
+                                    <div id="dpiX">
+                                        <div class="lang" msg="msg60" style="margin-bottom: 4px;">X轴</div>
+                                        <div id="dpi_bar_gp" style="position: relative; width: 100%; height: 40px;"> <!--跟dpi_slider等高-->
+                                            <div id="dpi_bar_x" style="position: absolute; top: 27px; width: 100%; height: 8px; border-radius: 4px; background: rgb(184,180,178);"></div>
+                                            <div id="dpi_sliders_x" style="width: 100%; height: 100%;">
+                                                <!--<div id="dpi_slider1" style="position: absolute; left: 20px; width: 36px; height: 40px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; border: 1px solid red;">
+                                                    <div id="dpi_val" style="font-weight: bold;">800</div>
+                                                    <div id="dpi_thumb1" style="width: 12px; height: 12px; border-radius: 50%; background: red;"></div>
+                                                </div>
+                                                <div id="dpi_slider2" style="position: absolute; left: 120px; width: 36px; height: 40px; display: flex; flex-direction: column; justify-content: space-between; align-items: center; ">
+                                                    <div id="dpi_va2" style="font-weight: bold;">26500</div>
+                                                    <div id="dpi_thumb2" style="width: 12px; height: 12px; border-radius: 50%; background: green;"></div>
+                                                </div>-->
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="dpiY" style="margin-top: 22px; margin-bottom: 30px;">
+                                        <div class="lang" msg="msg61" style="margin-bottom: 4px;">Y轴</div>
+                                        <div id="dpi_bar_gp" style="position: relative; width: 100%; height: 40px;"> <!--跟dpi_slider等高-->
+                                            <div id="dpi_bar_y" style="position: absolute; top: 27px; width: 100%; height: 8px; border-radius: 4px; background: rgb(184,180,178);"></div>
+                                            <div id="dpi_sliders_y" style="width: 100%; height: 100%; ">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                </div>
+                                
+                                
+                            </div>
+                            <div id="gp_usbrate" class="setting_group" style="width: 43%; height: 24%; margin-top: 2%; display: inline-block; ">
+                                <div class="flex-v-c linecolor" style="width: 94%; height: 20%; margin: 6px auto; border-bottom-width:1px; ">
+                                    <img id="arowpng4" class="arow" src="images/arow.png"/>
+                                    <div class="lang gp_title" msg="msg17">回报率</div>
+                                </div>
+                                <div class="lang commentfont" msg="msg18" style="width: 90%; height: 20%; margin: 0 auto; white-space: normal;" >设置鼠标与电脑通信频率，提高轮询率可以降低延迟，但会增加部分功耗</div>
+                                <div style="width: 80%; height: 20%; margin: 0 auto; display: flex; align-items: center; justify-content: space-around;">
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate7">8000</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate6">4000</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate5">2000</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate4">1000</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate3">500</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="rate2">250</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 16%; ">
+                                        <div id="rate1">125</div>
+                                    </div>
+                                </div>
+                                <div class="lang flex-v-c commentfont" msg="msg19" style="width: 90%; height: 20%; margin: 0 auto; margin-top: 2%; white-space: normal; " >
+                                    高回报率会对电脑CPU性能与内存频率有一定要求
+                                </div>
+                            </div>
+                            <div id="gp_sensor_mode" class="setting_group" style="width: 27%; height: 24%; margin-top: 2%;">
+                                <div class="flex-v-c linecolor" style="width: 94%; height: 20%; margin: 6px auto; border-bottom-width:1px;">
+                                    <img id="arowpng5" class="arow" src="images/arow.png"/>
+                                    <div class="lang gp_title" msg="msg20">性能模式</div>
+                                </div>
+                                <div id="sensor_tip" class="lang commentfont" msg="msg24" style="width: 90%; height: 20%; margin: 0 auto; white-space: normal;" >电竞模式开启后传感器发挥最佳性能，但会消耗更多电量</div>
+                                <div id="sensor_mode" style="width: 80%; height: 20%; margin: 0 auto; display: flex; align-items: center; justify-content: space-around;">
+                                    <div class="flex-c" style="width: 30%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="sensor_mode3" class="lang" msg="msg21" style="border-bottom: 1px solid black;">电竞模式</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 30%; ">
+                                        <div id="sensor_mode2" class="lang" msg="msg22" >标准模式</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 30%; border-left: 1px solid rgb(164,161,160);  ">
+                                        <div id="sensor_mode1" class="lang" msg="msg23" >节能模式</div>
+                                    </div>
+                                </div>
+                                <div class="lang commentfont" style="width: 90%; height: 20%; margin: 0 auto; margin-top: 2%; white-space: normal;" >
+
+                                </div>
+                            </div>
+                            <div id="gp_lod" class="setting_group" style="width: 27%; height: 24%; margin-top: 2%; ">
+                                <div class="flex-v-c linecolor" style="width: 94%; height: 20%; margin: 6px auto; border-bottom-width:1px;">
+                                    <img id="arowpng6" class="arow" src="images/arow.png"/>
+                                    <div class="lang gp_title" msg="msg26">鼠标LOD高度调节</div>
+                                </div>
+                                <div class="lang commentfont" msg="msg27" style="width: 90%; height: 20%; margin: 0 auto; white-space: normal;" >设置传感器在鼠标抬起时，最小工作高度</div>
+                                <div id="lod" style="width: 80%; height: 20%; margin: 0 auto; display: flex; align-items: center; justify-content: space-around;">
+                                    <!--<div class="flex-c" style="width: 30%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div style="border-bottom: 1px solid black;">0.75mm</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 30%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div>1mm</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 30%; ">
+                                        <div>2mm</div>
+                                    </div>-->
+                                </div>
+                            </div>
+
+                            <div style="width: 100%; height: 22%; margin-top: 2%; display: flex;">
+                                <div id="gp_debounce" class="setting_group" style="width: 30%; height: 100%;">
+                                    <div class="flex-v-c linecolor" style="width: 94%; height: 20%; margin: 6px auto; border-bottom-width:1px;">
+                                        <img id="arowpng7" class="arow" src="images/arow.png"/>
+                                        <div class="lang gp_title" msg="msg67">按键响应时间设置</div>
+                                    </div>
+                                    <div class="lang commentfont" msg="msg68" style="width: 90%; height: 20%; margin: 0 auto; white-space: normal;" >设置传感器在鼠标抬起时，最小工作高度</div>
+                                    <div class="flex-v-cc" style="width: 50%; height: 18%; margin: 0 auto;">
+                                        <img id="debounce_add" src="images/light/add_nr.png" style="width: 20px; object-fit: cover;"/>
+                                        <div class="linecolor inputBkgColor flex-v-cc" style="width: 50%; height: 100%; border-radius: 6px; border-width: 1px; margin: 0 10px;">
+                                            <div id="debounce_value">8</div>&nbsp;ms
+                                        </div>
+                                        <img id="debounce_sub" src="images/light/sub_nr.png" style="width: 20px; object-fit: cover;"/>
+                                    </div>
+                                    <div class="lang commentfont" msg="msg69" style="width: 90%; margin: 0 auto; margin-top: 5%; white-space: normal;" >
+                                        警示：调低延时有可能出现按键双击
+                                    </div>
+                                </div>
+    
+                                <div id="gp_sleeptime" class="setting_group" style="width: 30%; height: 100%; margin-left: 2%;">
+                                    <div class="flex-v-c linecolor" style="width: 94%; height: 20%; margin: 6px auto; border-bottom-width:1px;">
+                                        <img id="arowpng8" class="arow" src="images/arow.png"/>
+                                        <div class="lang gp_title" msg="msg70">休眠时间设置</div>
+                                    </div>
+                                    <div class="lang commentfont" msg="msg71" style="width: 90%; height: 20%; margin: 0 auto; white-space: normal;" >设置传感器在鼠标抬起时，最小工作高度</div>
+                                    <div class="flex-v-cc" style="width: 50%; height: 18%; margin: 0 auto;">
+                                        <img id="sleep_add" src="images/light/add_nr.png" style="width: 20px; object-fit: cover;"/>
+                                        <div class="linecolor inputBkgColor flex-v-cc" style="width: 50%; height: 100%; border-radius: 6px; border-width: 1px; margin: 0 10px;">
+                                            <div id="sleep_value">60</div>&nbsp;s
+                                        </div>
+                                        <img id="sleep_sub" src="images/light/sub_nr.png" style="width: 20px; object-fit: cover;"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                            
+                    </div>
+                    <div id="page_sys" class="page-b">
+                        <div style="width: 32%; height: 80%; position: relative; left: 5%; top:5%;">
+
+                            <div id="sensor_settings" class="setting_group" style="width: 100%;">
+                                
+                                <div class="linecolor" style="margin: 0 auto; padding: 10px 0; width: 94%; display: flex; justify-content: space-between; align-items: center; border-bottom-width:1px;  ">
+                                    <div style="height: 70%; width: 70%;">
+                                        <table style="height: 100%; white-space: normal;">
+                                            <tr">
+                                                <td><img id="arowpng9" src="images/arow.png" style="height: 18px; object-fit: cover; margin-right: 5px;"/></td>
+                                                <td class="lang gp_title" msg="msg28">移动同步</td>
+                                            </tr>
+                                            <tr><td></td><td class="lang commentfont" msg="msg29">对鼠标移动进行圆滑算法修正，移动轨迹更准确</td></tr>
+                                        </table>
+                                    </div>
+                                    <img id="motion_btn" src="images/sw_off.png" style="height: 18px; object-fit: cover;"/>
+                                </div> 
+
+                                <div class="linecolor" style="margin: 0 auto; padding: 10px 0;  width: 94%; display: flex; justify-content: space-between; align-items: center; border-bottom-width:1px;  ">
+                                    <div style="height: 70%; width: 70%;">
+                                        <table style="height: 100%; white-space: normal;">
+                                            <tr>
+                                                <td><img id="arowpng10" src="images/arow.png" style="height: 18px; object-fit: cover; margin-right: 5px;"/></td>
+                                                <td class="lang gp_title" msg="msg31">直线修正</td>
+                                            </tr>
+                                            <tr><td></td><td class="lang commentfont" msg="msg32">修正直线移动鼠标时的偏移抖动，变成绝对直线移动（游戏中不建议开启）</td></tr>
+                                        </table>
+                                    </div>
+                                    <img id="fixline_btn" src="images/sw_off.png" style="height: 18px; object-fit: cover;"/>
+                                </div>
+                                 
+                                <div style="margin: 0 auto; padding: 10px 0; width: 94%; display: flex; justify-content: space-between; align-items: center;  ">
+                                    <div style="height: 70%; width: 70%;">
+                                        <table style="height: 100%; white-space: normal;">
+                                            <tr>
+                                                <td><img id="arowpng11" src="images/arow.png" style="height: 18px; object-fit: cover; margin-right: 5px;"/></td>
+                                                <td class="lang gp_title" msg="msg33">纹波修正</td>
+                                            </tr>
+                                            <tr><td></td><td class="lang commentfont" style="word-break: break-word;" msg="msg34">对高移速情况下进行算法修正，消除波浪形抖动（游戏中不建议开启）</td></tr>
+                                        </table>
+                                    </div>
+                                    <img id="ripple_btn" src="images/sw_off.png" style="height: 18px; object-fit: cover;"/>
+                                </div> 
+
+                            </div>
+
+                            <div id="receiverLED_settings" class="setting_group" style="width: 100%; height: 22%; margin-top: 5%;">
+                                <div class="flex-v-c linecolor" style="width: 94%; height: 25%; margin: 6px auto; border-bottom-width:1px;">
+                                    <img id="arowpng12" class="arow" src="images/arow.png"/>
+                                    <div class="lang gp_title" msg="msg63">接收器灯效</div>
+                                </div>
+                                <div id="receiverLED_tip" class="lang commentfont" msg="msg75" style="width: 90%; height: 42%; margin: 0 auto; white-space: normal;" >始终保持熄灭，仅在鼠标需要充电时闪烁红灯</div>
+                                <div id="receiverLED" style="width: 94%;  margin: 0 auto; display: flex; align-items: center; justify-content: space-around;">
+                                    <div class="flex-c" style="width: 30%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="receiverLED2" class="lang" msg="msg65" style="border-bottom: 1px solid black;">电池状态</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 40%; border-right: 1px solid rgb(164,161,160); ">
+                                        <div id="receiverLED1" class="lang" msg="msg64">连接状态和回报率</div>
+                                    </div>
+                                    <div class="flex-c" style="width: 30%; ">
+                                        <div id="receiverLED3" class="lang" msg="msg66">仅警告电池</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div name="match" class="setting_group" style="width: 100%; margin-top: 5%; display: none;">
+                                <div style="margin: 0 auto; padding: 10px 0; width: 94%; display: flex; justify-content: space-between; align-items: center; ">
+                                    <div style="height: 70%; width: 70%;">
+                                        <table style="height: 100%; white-space: normal;">
+                                            <tr>
+                                                <td><img id="arowpng13" src="images/arow.png" style="height: 18px; object-fit: cover; margin-right: 5px;"/></td>
+                                                <td class="gp_title">配对接收器</td>
+                                            </tr>
+                                            <tr><td></td><td class="commentfont">1K或8K接收器配对</td></tr>
+                                        </table>
+                                    </div>
+                                    <div id="match_btn" class="flex-v-cc btn_nr">立即配对</div>
+                                </div>   
+                            </div>
+
+                            <div name="restore" class="setting_group" style="width: 100%; margin-top: 5%;">
+                                <div style="margin: 0 auto; padding: 10px 0; width: 94%; display: flex; justify-content: space-between; align-items: center; ">
+                                    <div style="height: 70%; width: 70%;">
+                                        <table style="height: 100%; white-space: normal;">
+                                            <tr">
+                                                <td><img id="arowpng14" src="images/arow.png" style="height: 18px; object-fit: cover; margin-right: 5px;"/></td>
+                                                <td class="lang gp_title" msg="reset">恢复出厂设置</td>
+                                            </tr>
+                                            <tr><td></td><td class="lang commentfont" msg="msg38">所有设置都将恢复到出厂状态，请谨慎操作 所有设置都将恢复到出厂状态，请谨慎操作</td></tr>
+                                        </table>
+                                    </div>
+                                    <div id="reset_btn" class="lang flex-v-cc btn_nr" msg="msg39">立即恢复</div>
+                                </div>   
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div><!--app-->
+    </div><!--parent-->
+
+    <dialog id="macroRecordDialog" class="myDialog gerDialog" style="width: 920px; height: 500px;">
+        <div id="macroRecordDialog_Content" style="position:relative; width: 95%; height: 100%; margin-left: 3%; box-sizing: border-box; padding-top: 15px;">
+            <div id="macdlg_name" class="flex-v-cc" style="width: 100%; height: 20px;">
+                <div id="mac_name_input" style="width: 200px; height: 22px; border-bottom: 1px solid rgb(137,135,133);" ></div>
+            </div>
+            <div class="flex-v-c"  style="height: 30px;">
+                <img id="arowpng15" src="images/arow.png" style="height: 16px; object-fit: cover; margin-right: 8px;"/>
+                <div id="arow-type-text" class="lang" msg="mac8" style="font-weight: bold; "></div>
+            </div>
+            <div autofocus id="mac_loop" style="display: flex;">
+                <div id="mac_loop1" class="flex-v-cc deepcolor" style="width: 150px; height: 35px; border-radius: 5px; ">
+                    <img src="images/check_off.png" style="width: 13px; object-fit: cover; margin-right: 8px;"/>
+                    <div class="lang" msg="mac3" ></div>
+                </div>
+                <div id="mac_loop2" class="flex-v-cc deepcolor" style="width: 180px; height: 35px; border-radius: 5px; margin: 0 15px;">
+                    <img src="images/check_off.png" style="width: 13px; object-fit: cover; margin-right: 8px;"/>
+                    <div class="lang" msg="mac4" ></div>
+                </div>
+                <div id="mac_loop3" class="flex-v-cc deepcolor" style="width: 150px; height: 35px; border-radius: 5px;">
+                    <img src="images/check_off.png" style="width: 13px; object-fit: cover; margin-right: 8px;"/>
+                    <div class="lang" msg="mac5" ></div>
+                    <div id="mac_loop3_input" style="width: 38px; height: 18px; border-bottom: 1px solid rgb(137,135,133);" ></div>
+                    <div class="lang" msg="fire5" ></div>
+                </div>
+            </div>
+            <div class="flex-v-c" style="height: 30px; margin-top: 5px;">
+                <img id="arowpng16" src="images/arow.png" style="height: 16px; object-fit: cover; margin-right: 8px;"/>
+                <div id="content-text" class="lang" msg="mac9" style="font-weight: bold; ">内容</div>
+            </div>
+            <div id="mac_content" class="lstbar" style="width: 100%; height: 60%; display: flex; flex-wrap: wrap; align-content: flex-start; overflow: auto;">
+                <!--<div style="display: flex; align-items: center; box-sizing: border-box; width: 180px; height: 30px;">
+                    <div class="deepcolor"  style="width: 60%; height: 100%; border-radius: 5px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between;">
+                        <img src="images/dark/macico_kb.png" style="width: 13px; object-fit: cover; "/>
+                        <div class="flex-v-cc" style="width: 60%; background-color: cyan;">A</div>
+                        <img src="images/check_off.png" style="width: 10px; object-fit: cover; "/>
+                    </div>
+                    <div class="flex-v-cc deepcolor" style="width: 30px; height: 30px; margin-left: 4px; border-radius: 5px; ">
+                        <img src="images/dark/modify.png" style="width: 12px; object-fit: cover;"/>
+                    </div>
+                    <div style="margin: 0 10px;"><img src="images/dark/macico_split.png" style="width: 8px; object-fit: cover;"/></div>
+                </div>-->
+
+                <div id="macdlg_record" class="deepcolor" style="width: 110px; height: 30px; border-radius: 5px; display: flex; align-items: center;">
+                    <img src="images/dark/macico_kb.png" style="width: 13px; object-fit: cover; margin: 0 10px;"/>
+                    <div id="macdlg_btn_record" ></div>
+                </div>
+            </div>
+            <div id="macdlg_mdf" style="width: 180px; height: 90px; position: absolute; left: 50px; display: none; z-index: 95;">
+                <!--<div class="pop_tri"></div>-->
+                <div class="pop_content linecolor flex-v-cc" style="border-width: 1px;">
+                    <div style="width: 85%; height: 80%;" >
+                        <div style="display: flex; justify-content: flex-end;"><img id="macdlg_mdf_cancel" src="images/light/delete.png" style="width: 8px; object-fit: cover;"/></div>
+                        <div id="macdlg_mdf_rect" style="width: 100%; height: 54%; display: flex; align-items: center; justify-content: space-evenly;">
+                            <div id="macdlg_mdf_tip">修改按键</div>
+                            <div id="macdlg_mdf_input" style="width: 60px; height: 18px; border-bottom: 1px solid rgb(137,135,133);" ></div>
+                            <div id="macdlg_mdf_ms_input" style="width: 60px; height: 18px; display: none; "></div>
+                        </div>
+                        <div style="width: 100%; display: flex; align-items: center; flex-direction: row-reverse;">
+                            <div id="macdlg_mdf_ok" class="lang flex-v-cc deepcolor" msg="ok" style="width: 60px; height: 22px; "></div>
+                            <div id="macdlg_mdf_del" class="lang flex-v-cc" msg="msg46" style="width: 60px; height: 22px; color: white; background: rgb(253,112,0); margin-right: 10px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="flex-v-cc" style="margin-top: 15px;">
+                <div id="macdlg_btn_cancel" class="lang flex-v-cc dgTitleColor macdlgitemcolor" msg="cancel" style="width: 150px; height: 34px; border-radius: 5px; font-weight: bold; margin-right: 20px;"></div>
+                <div id="macdlg_btn_ok" class="lang flex-v-cc dgTitleColor" msg="save" style="width: 150px; height: 34px; border-radius: 5px; font-weight: bold; background: rgb(255,114,0);"></div>
+            </div>            
+        </div>
+    </dialog>
+
+    <dialog id="buyDialog" class="myDialog gerDialog" style="width: 650px; height: 400px; border-width: 0px; border-radius: 12px;">
+        <div id="buyContent"  class="flex-v-cc" style="width: 95%; height: 100%; flex-direction: column; margin: 0 auto; ">           
+            <div class="lang flex-v-cc gp_title" msg="wec27" style="width: 100%; height: 120px; font-size: 26px; font-weight: bold;"></div>  
+            <div style="width: 100%; display: flex; justify-content: space-around;">
+                <div class="flex-c" style="width: 25%; flex-direction: column; align-items:center;">
+                    <div id="buy1">
+                        <img id="buyimg1" src="images/buy/icon_tmall.png" style="width: 120px; object-fit: cover;"/>
+                        <a href="https://yinkete.tmall.com/?spm=a1z10.1-b.1997427721.d4918089.5b575f65Tb4KGl" target="_blank">
+                            <img id="buyimg2" src="images/buy/buy_tmall.png" hidden="true" style="width: 120px; object-fit: cover;"/>
+                        </a>
+                    </div>
+                    <div id="buy1_tip" class="lang flex-v-cc" msg="wec28" style="height: 80px; font-size: 14px;"></div>
+                </div>
+                <div class="flex-c" style="width: 25%; flex-direction: column; align-items:center;">
+                    <div id="buy2">
+                        <img id="buyimg1" src="images/buy/icon_taobao.png" style="width: 120px; object-fit: cover;"/>
+                        <a href="https://shop203453275.taobao.com/?spm=a1z10.1-c-s.0.0.1d9f1035TXlJvt" target="_blank">
+                            <img id="buyimg2" src="images/buy/buy_taobao.png" hidden="true" style="width: 120px; object-fit: cover;"/>
+                        </a>
+                    </div>
+                    <div id="buy2_tip" class="lang flex-v-cc" msg="wec29" style="height: 80px; font-size: 14px;"></div>
+                </div>
+                <div class="flex-c" style="width: 25%; flex-direction: column; align-items:center;">
+                    <div id="buy3">
+                        <img id="buyimg1" src="images/buy/icon_douyin.png" style="width: 120px; object-fit: cover;"/>
+                        <a href="https://www.douyin.com/user/MS4wLjABAAAAeuXFw-e33bI4wmg5HlwVkh2vqvMO1qeyWCqZ7mbMjZY" target="_blank">
+                            <img id="buyimg2" src="images/buy/buy_douyin.png" hidden="true" style="width: 120px; object-fit: cover;"/>
+                        </a>
+                    </div>
+                    <div id="buy3_tip" class="lang flex-v-cc" msg="wec30" style="height: 80px; font-size: 14px;"></div>
+                </div>
+                <div class="flex-c" style="width: 25%; flex-direction: column; align-items:center;">
+                    <div id="buy4">
+                        <img id="buyimg1" src="images/buy/icon_jd.png" style="width: 120px; object-fit: cover;"/>
+                        <a href="https://mall.jd.com/view_search-2156803-0-99-1-24-1.html" target="_blank">
+                            <img id="buyimg2" src="images/buy/buy_jd.png" hidden="true" style="width: 120px; object-fit: cover;"/>
+                        </a>
+                    </div>
+                    <div id="buy4_tip" class="lang flex-v-cc" msg="wec31" style="height: 80px; font-size: 14px;"></div>
+                </div>
+            </div>
+        </div>
+    </dialog>
+
+    <dialog id="hzDialog" class="myDialog gerDialog" style="width: 700px; height: 450px;">
+        <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;">
+            <div class="flex-v-cc" style="width: 90%; height: 95%; flex-direction: column;">
+                <div class="lang gp_title" msg="wec32" style="font-size: 20px; font-weight: bold; margin-bottom: 20px;">官方推荐最低电脑配置</div> 
+                <div id="configur1" class="lang" msg="wec33" style="margin-bottom: 24px;"></div>
+                <div style="width: 70%; height: 34%; border: 1px solid rgb(150,150,150); margin-bottom: 10px; border-radius: 12px;">
+                    <div class="flex-v-c" style="height: 70%; border-bottom: 1px solid rgb(150,150,150); ">
+                        <div id="configur2" class="flex-v-c lang" msg="wec34" style="width: 50%; height: 100%; padding-left: 24px; box-sizing: border-box; border-right: 1px solid rgb(150,150,150);">Intel平台</div>
+                        <div id="configur3" class="flex-v-c lang" msg="wec35" style="width: 50%; height: 100%; padding-left: 18px; box-sizing: border-box;">AMD平台</div>
+                    </div>
+                    <div id="configur4" class="flex-v-cc lang" msg="wec36" style="height: 30%">显示器</div>
+                </div>
+                <div id="configur5" class="lang" msg="wec37" style="margin-bottom: 24px; margin-top: 12px;">*如开启8K轮询率</div>
+                <div id="hzdlg_btn_ok" class="flex-v-cc gp_title lang" msg="wec38" style="width: 100%; height: 34px; border-radius: 5px; background: rgb(253,112,0);"></div>
+                <div id="hzdlg_btn_cancel" class="flex-v-cc gp_title macdlgitemcolor lang" msg="cancel" style="width: 100%; height: 34px; border-radius: 5px; margin-top: 10px; "></div>
+        </div>
+    </dialog>
+    <script>
+        /* position: relative;   position: absolute; top: 0; left: 0; 
+        display: flex; align-items: center; justify-content: center;
+        */
+        //document.oncopy=(e)=>{e.preventDefault();}
+    </script>
+</body>
+</html>

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#262a33"/>
+      <stop offset="1" stop-color="#0c0d11"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffa04d"/>
+      <stop offset="0.55" stop-color="#ff7a1a"/>
+      <stop offset="1" stop-color="#e2550b"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.62" r="0.5">
+      <stop offset="0" stop-color="#ff7a1a" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ff7a1a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <rect x="64.5" y="64.5" width="895" height="895" rx="199.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <ellipse cx="512" cy="600" rx="330" ry="300" fill="url(#glow)"/>
+  <!-- mouse body -->
+  <path d="M512 196c-128 0-214 92-214 226v218c0 116 92 196 214 196s214-80 214-196V422c0-134-86-226-214-226z" fill="url(#body)"/>
+  <!-- split line between buttons -->
+  <path d="M512 200v226" stroke="#7a2c00" stroke-opacity="0.55" stroke-width="10" stroke-linecap="round"/>
+  <path d="M310 470c60 24 128 34 202 34s142-10 202-34" fill="none" stroke="#7a2c00" stroke-opacity="0.35" stroke-width="8" stroke-linecap="round"/>
+  <!-- wheel -->
+  <rect x="486" y="262" width="52" height="108" rx="26" fill="#1a1c22"/>
+  <rect x="500" y="282" width="24" height="68" rx="12" fill="#ff7a1a" opacity="0.9"/>
+  <!-- highlight -->
+  <path d="M360 300c30-56 86-88 152-92v170H330c2-28 12-54 30-78z" fill="url(#shine)" opacity="0.5"/>
+</svg>
