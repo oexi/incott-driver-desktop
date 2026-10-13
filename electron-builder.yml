@@ -57,6 +57,18 @@ rpm:
   fpm:
     - build/linux/70-incott-mouse.rules=/usr/lib/udev/rules.d/70-incott-mouse.rules
 pacman:
+  # electron-builder 默认依赖列表已过时（含 Arch 已移除的 http-parser），这里按 Electron 实际需要声明
+  depends:
+    - gtk3
+    - nss
+    - alsa-lib
+    - libxss
+    - libxtst
+    - libnotify
+    - xdg-utils
+    - at-spi2-core
+    - util-linux-libs
+    - mesa
   fpm:
     - build/linux/70-incott-mouse.rules=/usr/lib/udev/rules.d/70-incott-mouse.rules
 
