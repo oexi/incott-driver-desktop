@@ -1,7 +1,7 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, AppWindow, Info, ExternalLink } from 'lucide-vue-next';
-import { state, settings, saveSettings, openClassic, isDesktop } from '../store.js';
+import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop } from 'lucide-vue-next';
+import { state, settings, saveSettings, isDesktop } from '../store.js';
 import { t } from '../i18n.js';
 import AppLogo from './AppLogo.vue';
 
@@ -24,10 +24,6 @@ const accents = [
 function set(k, v) {
   settings[k] = v;
   saveSettings();
-}
-function classic() {
-  state.settingsOpen = false;
-  openClassic();
 }
 </script>
 
@@ -83,14 +79,6 @@ function classic() {
                 <div class="desc">{{ t.closeToTrayDesc }}</div>
               </div>
               <div class="switch" :class="{ on: settings.closeToTray }" @click="set('closeToTray', !settings.closeToTray)"></div>
-            </div>
-            <div class="setting-row">
-              <AppWindow :size="18" class="ic" />
-              <div class="txt">
-                <div class="name">{{ t.classicUI }}</div>
-                <div class="desc">{{ t.classicUIDesc }}</div>
-              </div>
-              <button class="btn sm" @click="classic"><ExternalLink :size="13" />{{ t.classicOpen }}</button>
             </div>
           </template>
 

@@ -11,7 +11,6 @@ const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const ROOT = path.join(__dirname, '..');
 
 let mainWindow = null;
-let classicWindow = null;
 let tray = null;
 let quitting = false;
 let closeToTray = false;
@@ -108,40 +107,6 @@ function createMainWindow() {
   else mainWindow.loadFile(path.join(ROOT, 'dist', 'index.html'));
 }
 
-function classicIndexPath() {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'classic', 'index.html')
-    : path.join(ROOT, 'classic', 'index.html');
-}
-
-function openClassicWindow() {
-  if (classicWindow) {
-    classicWindow.focus();
-    return;
-  }
-  classicWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1200,
-    minHeight: 760,
-    title: 'Incott Driver — 经典界面',
-    icon: resolveAsset('icon.png'),
-    autoHideMenuBar: true,
-    backgroundColor: '#ede9e6',
-    webPreferences: { contextIsolation: true, sandbox: true },
-  });
-  classicWindow.setMenuBarVisibility(false);
-  classicWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) shell.openExternal(url);
-    return { action: 'deny' };
-  });
-  classicWindow.on('closed', () => {
-    classicWindow = null;
-    if (mainWindow) mainWindow.webContents.send('classic:closed');
-  });
-  classicWindow.loadFile(classicIndexPath());
-}
-
 /* ------------------------------------------------------------------ tray */
 
 function ensureTray(enabled) {
@@ -205,8 +170,6 @@ ipcMain.on('tray:set', (_e, enabled) => ensureTray(!!enabled));
 ipcMain.on('open:external', (_e, url) => {
   if (/^https?:\/\//i.test(String(url))) shell.openExternal(url);
 });
-
-ipcMain.on('classic:open', () => openClassicWindow());
 
 ipcMain.handle('file:save-text', async (e, { defaultName, content, filters }) => {
   const res = await dialog.showSaveDialog(senderWindow(e), {

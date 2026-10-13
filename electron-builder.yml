@@ -14,8 +14,6 @@ files:
   - "!**/*.map"
 
 extraResources:
-  - from: classic
-    to: classic
   - from: build/icon.png
     to: icon.png
   - from: build/tray.png

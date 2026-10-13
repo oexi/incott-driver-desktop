@@ -46,7 +46,7 @@
 <td width="33%" valign="top">
 
 ### 🛡️ 放心使用
-首次连接先从鼠标**读取**现有映射，你修改之前不写入任何数据。完全离线，内置原版界面随时切回。
+首次连接先从鼠标**读取**现有映射，你修改之前不写入任何数据。完全离线，不收集任何信息。
 
 </td>
 </tr>
@@ -151,15 +151,6 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 </details>
 
-<details>
-<summary><b>想用回原来的界面？</b></summary>
-
-<br />
-
-设置 → 经典界面 → 「打开经典界面」，会打开内置的官方网页驱动界面，配置数据与新界面共用。
-
-</details>
-
 ## 🛠️ 开发
 
 需要 Node.js 20+。
@@ -211,8 +202,8 @@ src/protocol/        协议层（移植自原版 CBAccess / StProfile / STMacro�
   constants.js       功能码、DPI 表、回报率等常量
 src/store.js         业务逻辑（配置切换、按键校验、写入队列…）
 src/pages/           按键 / 性能 / 高级 / 宏 页面
-classic/             官方网页驱动（经典界面，同时作为差分测试的基准）
 tests/               差分测试：沙箱运行原版代码，与移植版逐字节比对 HID 报文
+  original/          官方网页驱动的原始 JS（仅作测试基准，不打包进应用）
 ```
 
 </details>
@@ -243,7 +234,7 @@ tests/               差分测试：沙箱运行原版代码，与移植版逐�
 
 | 路径 | 内容 | 版权 / 协议 |
 |---|---|---|
-| `classic/` | 官方网页驱动离线镜像 | © INCOTT（因科特） |
+| `tests/original/` | 官方网页驱动原始 JS（测试基准） | © INCOTT（因科特） |
 | `public/mice/` · `public/products/` | 鼠标产品图 | © INCOTT（因科特） |
 | `src/assets/fonts/` | HarmonyOS Sans 字体 | © 华为，HarmonyOS Sans Fonts License |
 

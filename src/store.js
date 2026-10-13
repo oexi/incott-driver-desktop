@@ -84,7 +84,6 @@ export const state = reactive({
   toasts: [],
   dialog: null,
   settingsOpen: false,
-  classicOpen: false,
 });
 
 loadMacros(state.macros);
@@ -759,19 +758,6 @@ export async function exportMacro(uid) {
 }
 
 /* ------------------------------------------------------------------ 其它 */
-
-export async function openClassic() {
-  await disconnect();
-  state.classicOpen = true;
-  desktop?.openClassic();
-}
-
-if (desktop) {
-  desktop.onClassicClosed(() => {
-    state.classicOpen = false;
-    setTimeout(autoConnect, 300);
-  });
-}
 
 export const isDesktop = !!desktop;
 export const isMock = USE_MOCK;

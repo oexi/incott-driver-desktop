@@ -20,12 +20,6 @@ contextBridge.exposeInMainWorld('desktop', {
   setTheme: (source) => ipcRenderer.send('theme:set', source),
   setTray: (enabled) => ipcRenderer.send('tray:set', enabled),
   openExternal: (url) => ipcRenderer.send('open:external', url),
-  openClassic: () => ipcRenderer.send('classic:open'),
-  onClassicClosed: (cb) => {
-    const fn = () => cb();
-    ipcRenderer.on('classic:closed', fn);
-    return () => ipcRenderer.removeListener('classic:closed', fn);
-  },
   saveText: (opts) => ipcRenderer.invoke('file:save-text', opts),
   openText: (opts) => ipcRenderer.invoke('file:open-text', opts),
   linux: {

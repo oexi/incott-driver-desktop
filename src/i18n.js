@@ -235,9 +235,6 @@ const zh = {
   behavior: '行为',
   closeToTray: '关闭窗口时最小化到托盘',
   closeToTrayDesc: '保持后台运行，可响应鼠标上的"配置切换"按键',
-  classicUI: '经典界面',
-  classicUIDesc: '打开原版网页驱动界面（打开前会断开当前连接）',
-  classicOpen: '打开经典界面',
   about: '关于',
   aboutDesc: '基于 INCOTT 官方网页驱动（WebHID）移植的桌面版。所有设置直接写入鼠标板载内存，本软件不联网。',
   firstRunNotice:
@@ -469,9 +466,6 @@ const en = {
   behavior: 'Behavior',
   closeToTray: 'Minimize to tray on close',
   closeToTrayDesc: 'Keep running in the background so the on-mouse profile button keeps working',
-  classicUI: 'Classic UI',
-  classicUIDesc: 'Open the original web driver UI (disconnects the current session first)',
-  classicOpen: 'Open classic UI',
   about: 'About',
   aboutDesc:
     'A desktop port of the official INCOTT WebHID driver. All settings are written to the mouse onboard memory; this app never goes online.',

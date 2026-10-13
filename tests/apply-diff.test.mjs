@@ -1,4 +1,4 @@
-// 差分测试：在沙箱中运行原版网页驱动（classic/js，未修改的混淆代码）的 CBAccess.apply，
+// 差分测试：在沙箱中运行原版网页驱动（tests/original，未修改的混淆代码）的 CBAccess.apply，
 // 与本项目移植的 IncottDevice.apply 对比发往鼠标的每一个 HID 报文，要求逐字节一致。
 
 import { test } from 'node:test';
@@ -48,7 +48,7 @@ function loadOriginal() {
   ctx.window = ctx;
   ctx.document = new Proxy({}, { get: (t, k) => (k in t ? t[k] : stub()), set: (t, k, v) => ((t[k] = v), true) });
   vm.createContext(ctx);
-  for (const f of ORIGINAL) vm.runInContext(fs.readFileSync(path.join(ROOT, 'classic', 'js', f), 'utf8'), ctx, { filename: f });
+  for (const f of ORIGINAL) vm.runInContext(fs.readFileSync(path.join(ROOT, 'tests', 'original', f), 'utf8'), ctx, { filename: f });
   vm.runInContext('initgvarG23(dvar); ace = new CBAccess();', ctx);
   return ctx;
 }

@@ -4,8 +4,9 @@ Copyright (c) 2026 oexi — licensed under the MIT License (see LICENSE).
 Third-party materials NOT covered by the MIT License
 （以下内容不适用 MIT 协议，版权归各自所有者）:
 
-  classic/                  Offline mirror of the official INCOTT web driver
-                            (HTML / JavaScript / images). © INCOTT (因科特).
+  tests/original/           Original JavaScript of the official INCOTT web driver,
+                            used only as the baseline for differential tests
+                            (not shipped in the app). © INCOTT (因科特).
   public/mice/              Mouse product renders derived from the official
   public/products/          INCOTT web driver. © INCOTT (因科特).
   src/assets/fonts/         HarmonyOS Sans, © Huawei Device Co., Ltd.,
