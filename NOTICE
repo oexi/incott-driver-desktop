@@ -1,0 +1,15 @@
+INCOTT Driver (desktop)
+Copyright (c) 2026 oexi — licensed under the MIT License (see LICENSE).
+
+Third-party materials NOT covered by the MIT License above
+（以下内容不适用上述 MIT 协议，版权归各自所有者）:
+
+  classic/                  Offline mirror of the official INCOTT web driver
+                            (HTML / JavaScript / images). © INCOTT (因科特).
+  public/mice/              Mouse product renders derived from the official
+  public/products/          INCOTT web driver. © INCOTT (因科特).
+  src/assets/fonts/         HarmonyOS Sans, © Huawei Device Co., Ltd.,
+                            distributed under the HarmonyOS Sans Fonts License.
+
+"INCOTT" and product names are trademarks of their respective owners. This
+project is an unofficial third-party tool and is not affiliated with INCOTT.

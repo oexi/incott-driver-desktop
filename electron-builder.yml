@@ -22,6 +22,8 @@ extraResources:
     to: tray.png
   - from: LICENSE
     to: LICENSE.txt
+  - from: NOTICE
+    to: NOTICE.txt
 
 asar: true
 compression: maximum
