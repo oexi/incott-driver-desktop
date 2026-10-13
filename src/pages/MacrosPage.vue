@@ -203,8 +203,10 @@ const isMouseKey = (k) => /Button$/.test(k);
           <Workflow :size="16" />
           <span class="mn">{{ m.name }}</span>
           <span v-if="macroButtons(m.uid).length" class="badge accent">{{ t.macroInUse }}</span>
-          <span class="muted num cnt">{{ m.item.length }}</span>
-          <span class="row-del" :title="t.delete" @click.stop="removeFromList(m.uid)"><Trash2 :size="14" /></span>
+          <span class="tail">
+            <span class="muted num cnt">{{ m.item.length }}</span>
+            <span class="row-del" :title="t.delete" @click.stop="removeFromList(m.uid)"><Trash2 :size="14" /></span>
+          </span>
         </button>
         <div v-if="!state.macros.list.length" class="empty muted">
           <Workflow :size="28" />
@@ -338,23 +340,38 @@ const isMouseKey = (k) => /Button$/.test(k);
 .mitem.on svg {
   color: var(--accent);
 }
-.row-del {
-  display: none;
+/* 数字与删除按钮叠放在固定尺寸的槽位里，悬停只切换透明度，避免行高变化 */
+.tail {
+  position: relative;
   width: 24px;
-  height: 24px;
-  border-radius: 6px;
+  height: 20px;
+  flex: none;
+}
+.cnt,
+.row-del {
+  position: absolute;
+  inset: 0;
+  display: grid;
   place-items: center;
+  transition: opacity var(--t-fast);
+}
+.row-del {
+  inset: -2px;
+  border-radius: 6px;
   color: var(--text-3);
+  opacity: 0;
+  pointer-events: none;
 }
 .row-del:hover {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 .mitem:hover .row-del {
-  display: grid;
+  opacity: 1;
+  pointer-events: auto;
 }
 .mitem:hover .cnt {
-  display: none;
+  opacity: 0;
 }
 .mn {
   flex: 1;
