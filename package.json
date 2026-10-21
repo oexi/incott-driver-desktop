@@ -1,7 +1,7 @@
 {
   "name": "incott-driver-desktop",
   "productName": "Incott Driver",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "INCOTT 鼠标桌面驱动（基于官方 WebHID 网页驱动移植）",
   "author": {
     "name": "oexi",
