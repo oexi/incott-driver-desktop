@@ -86,6 +86,8 @@ onMounted(() => {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 4px 28px 28px;
+  /* 始终预留滚动条位置：内容变高出现滚动条时不挤压页面宽度（右内边距相应减去 10px 滚动条宽） */
+  scrollbar-gutter: stable;
+  padding: 4px 18px 28px 28px;
 }
 </style>
