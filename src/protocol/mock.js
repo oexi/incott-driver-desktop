@@ -66,7 +66,7 @@ export class MockHidDevice extends EventTarget {
         r[7] = 1;
         break;
       case 137:
-        r[2] = s.rateIx;
+        r[4] = s.rateIx; // 实测回报率在 data[3]
         r[7] = s.lod << 4;
         break;
       case 131:
