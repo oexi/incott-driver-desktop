@@ -378,7 +378,8 @@ export class IncottDevice extends EventTarget {
     if (di != null && di.length <= 0) return false;
     this.charging = (r[0] & 128) !== 0;
     this.power = Math.floor((r[0] & 127) / 10) * 10;
-    const rate = r[1] & 15;
+    // 原版读 r[1]，但实测（G23V2 有线/无线）回报率编码在 r[3]，r[1] 恒不是回报率
+    const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
     this.curDpi = di != null ? di[0] : -1;
     this.dpiLevels = di != null ? di[1] : -1;

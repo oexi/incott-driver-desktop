@@ -105,27 +105,42 @@ function onKey(e, press) {
 const kd = (e) => onKey(e, true);
 const ku = (e) => onKey(e, false);
 
-function onPadMouse(e, press) {
+// 录制区内按下、尚未抬起的鼠标键。抬起只在按下被记录过时才记录：
+// 在"停止录制"等按钮上按下（不记录）再松开时，不会留下孤立的"抬起"；
+// 抬起在 window 上监听，按下后拖出录制区再松开也能记录到。
+const heldButtons = new Set();
+const mouseName = (e) => ['LButton', 'MButton', 'RButton'][e.button];
+
+function onPadMouseDown(e) {
   if (!recording.value) return;
-  const name = ['LButton', 'MButton', 'RButton'][e.button];
+  const name = mouseName(e);
   if (!name) return;
   e.preventDefault();
-  addRecorded(name, press);
+  heldButtons.add(name);
+  addRecorded(name, true);
+}
+function onWinMouseUp(e) {
+  const name = mouseName(e);
+  if (!heldButtons.delete(name)) return;
+  addRecorded(name, false);
 }
 
 function startRecord() {
   if (!draft.value) return;
   draft.value.item = [];
   preKey = preStatus = null;
+  heldButtons.clear();
   recording.value = true;
   window.addEventListener('keydown', kd, true);
   window.addEventListener('keyup', ku, true);
+  window.addEventListener('mouseup', onWinMouseUp, true);
 }
 function stopRecord() {
   if (!recording.value) return;
   recording.value = false;
   window.removeEventListener('keydown', kd, true);
   window.removeEventListener('keyup', ku, true);
+  window.removeEventListener('mouseup', onWinMouseUp, true);
 }
 onBeforeUnmount(stopRecord);
 
@@ -241,8 +256,7 @@ const isMouseKey = (k) => /Button$/.test(k);
       <div
         class="pad"
         :class="{ rec: recording }"
-        @mousedown="onPadMouse($event, true)"
-        @mouseup="onPadMouse($event, false)"
+        @mousedown="onPadMouseDown"
         @contextmenu.prevent
       >
         <div class="pad-head">
@@ -263,7 +277,7 @@ const isMouseKey = (k) => /Button$/.test(k);
 
         <div class="actions-list">
           <div v-if="!draft.item.length" class="empty muted">{{ recording ? '' : t.macroNoActions }}</div>
-          <div v-for="(it, i) in draft.item" :key="i" class="act" @mousedown.stop>
+          <div v-for="(it, i) in draft.item" :key="i" class="act">
             <span class="ai num">{{ i + 1 }}</span>
             <span class="ak-ic"><MousePointer2 v-if="isMouseKey(it.key)" :size="14" /><Keyboard v-else :size="14" /></span>
             <button class="kbd ak" :class="{ capping: capIndex === i }" :disabled="recording" @click="beginCapture(i)">{{ it.key }}</button>
