@@ -15,7 +15,7 @@ const USE_MOCK = typeof location !== 'undefined' && /[?&]mock\b/.test(location.s
 /* ----------------------------------------------------------- 设置持久化 */
 
 const SETTINGS_KEY = 'incott.desktop.settings';
-const defaultSettings = { theme: 'system', accent: 'orange', lang: 'zh', closeToTray: false, firstRunAck: false };
+const defaultSettings = { theme: 'system', accent: 'orange', lang: 'zh', closeToTray: false, firstRunAck: false, shell: {} };
 
 function loadSettings() {
   try {

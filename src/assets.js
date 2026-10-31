@@ -1,9 +1,20 @@
 // 图片资源路径（相对 index.html，打包后通过 file:// 加载也能正确解析）
 
 import { computed, ref } from 'vue';
-import { state } from './store.js';
+import { state, settings } from './store.js';
 
 const KNOWN = ['G23', 'G24', 'G23V2', 'G29', 'FM23', 'Ghero'];
+
+// 鼠标不上报外壳颜色（只有零29 上报粉色），由用户在设置里手动选择。
+// 列出的是默认图片之外的配色，图片在 mice/{dark,light}/<型号>-<配色>/ 和 products/<型号>-<配色>.webp，
+// 由默认橙色渲染图重新上色得到。
+export const SHELLS = { G23: ['White', 'Red'] };
+
+/** 当前型号所选的外壳配色，未选择或无此配色时为 null（使用默认图片）。 */
+export function shellOf(model = modelDir()) {
+  const s = settings.shell?.[model];
+  return SHELLS[model]?.includes(s) ? s : null;
+}
 
 export const themeName = ref(document.documentElement.dataset.theme || 'dark');
 new MutationObserver(() => (themeName.value = document.documentElement.dataset.theme || 'dark')).observe(document.documentElement, {
@@ -17,14 +28,18 @@ export function modelDir() {
 
 /** 按键示意图：index = -1 显示全部编号，0..5 高亮对应按键 */
 export function mouseMapImage(index) {
-  const set = state.info.pink ? 'pink' : themeName.value === 'light' ? 'light' : 'dark';
-  return `./mice/${set}/${modelDir()}/${index + 1}.webp`;
+  const theme = themeName.value === 'light' ? 'light' : 'dark';
+  if (state.info.pink) return `./mice/pink/${modelDir()}/${index + 1}.webp`;
+  const shell = shellOf();
+  const dir = shell ? `${modelDir()}-${shell}` : modelDir();
+  return `./mice/${theme}/${dir}/${index + 1}.webp`;
 }
 
 export const productImage = computed(() => {
   const m = modelDir();
   if (m === 'G29' && state.info.pink) return './products/G29-Pink.webp';
-  return `./products/${m}.webp`;
+  const shell = shellOf(m);
+  return shell ? `./products/${m}-${shell}.webp` : `./products/${m}.webp`;
 });
 
 export function displayName(devname) {

@@ -9,6 +9,8 @@ Third-party materials NOT covered by the MIT License
                             (not shipped in the app). © INCOTT (因科特).
   public/mice/              Mouse product renders derived from the official
   public/products/          INCOTT web driver. © INCOTT (因科特).
+                            The G23-White and G23-Red variants are those same
+                            renders with the orange shell recoloured.
   src/assets/fonts/         HarmonyOS Sans, © Huawei Device Co., Ltd.,
                             distributed under the HarmonyOS Sans Fonts License.
 
