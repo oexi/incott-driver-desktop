@@ -15,6 +15,9 @@ let mainWindow = null;
 let tray = null;
 let quitting = false;
 let closeToTray = false;
+// 开机自启时带 --hidden 启动：窗口照常加载（需要连接鼠标），但不显示，只留托盘图标
+const startHidden = process.argv.includes('--hidden');
+let hideOnLaunch = startHidden;
 
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) app.quit();
@@ -155,7 +158,10 @@ function createMainWindow() {
     },
   });
 
-  mainWindow.once('ready-to-show', () => mainWindow.show());
+  mainWindow.once('ready-to-show', () => {
+    if (hideOnLaunch) hideOnLaunch = false;
+    else mainWindow.show();
+  });
   mainWindow.on('unresponsive', () => appendLog('[main] window unresponsive'));
   mainWindow.on('responsive', () => appendLog('[main] window responsive again'));
   mainWindow.webContents.on('render-process-gone', (_e, d) => appendLog(`[main] renderer gone: ${d.reason} (exit ${d.exitCode})`));
@@ -192,7 +198,8 @@ function createMainWindow() {
 
 function ensureTray(enabled) {
   closeToTray = enabled;
-  if (!enabled) {
+  // 隐藏启动时托盘是唯一入口，即使未开启"最小化到托盘"也保留
+  if (!enabled && !startHidden) {
     if (tray) tray.destroy();
     tray = null;
     return;
@@ -216,6 +223,21 @@ function ensureTray(enabled) {
     ])
   );
   tray.on('click', () => showMain());
+}
+
+/* ---------------------------------------------------------- 开机自启 */
+
+function loginItemOptions() {
+  // portable 版运行在临时解压目录，必须登记原始 exe 路径
+  return { path: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath, args: ['--hidden'] };
+}
+
+function setLaunchAtLogin(enabled) {
+  // 开发模式下 execPath 是 electron 本体，不登记
+  if (!app.isPackaged || process.platform === 'linux') return;
+  const opts = loginItemOptions();
+  if (app.getLoginItemSettings(opts).openAtLogin === enabled) return;
+  app.setLoginItemSettings({ ...opts, openAtLogin: enabled });
 }
 
 /* ------------------------------------------------------------------- IPC */
@@ -271,6 +293,7 @@ ipcMain.on('theme:set', (_e, source) => {
 });
 
 ipcMain.on('tray:set', (_e, enabled) => ensureTray(!!enabled));
+ipcMain.on('login:set', (_e, enabled) => setLaunchAtLogin(!!enabled));
 
 ipcMain.on('open:external', (_e, url) => {
   if (/^https?:\/\//i.test(String(url))) shell.openExternal(url);
@@ -328,6 +351,7 @@ app.whenReady().then(() => {
   if (!IS_MAC) Menu.setApplicationMenu(null);
   initLog();
   setupHid(session.defaultSession);
+  if (startHidden) ensureTray(false);
   createMainWindow();
   powerMonitor.on('suspend', () => mainEvent('system suspend'));
   powerMonitor.on('resume', () => mainEvent('system resume'));

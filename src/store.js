@@ -16,7 +16,7 @@ const USE_MOCK = typeof location !== 'undefined' && /[?&]mock\b/.test(location.s
 /* ----------------------------------------------------------- 设置持久化 */
 
 const SETTINGS_KEY = 'incott.desktop.settings';
-const defaultSettings = { theme: 'system', accent: 'orange', lang: 'zh', closeToTray: false, firstRunAck: false, shell: {} };
+const defaultSettings = { theme: 'system', accent: 'orange', lang: 'zh', closeToTray: false, launchAtLogin: false, firstRunAck: false, shell: {} };
 
 function loadSettings() {
   try {
@@ -46,6 +46,7 @@ export function applySettings() {
   root.dataset.theme = dark ? 'dark' : 'light';
   desktop?.setTheme(settings.theme);
   desktop?.setTray(settings.closeToTray);
+  desktop?.setLaunchAtLogin?.(settings.launchAtLogin);
 }
 
 if (typeof window !== 'undefined') {

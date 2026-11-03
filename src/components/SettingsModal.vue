@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle, Download } from 'lucide-vue-next';
+import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle, Download, Power } from 'lucide-vue-next';
 import { state, settings, saveSettings, isDesktop } from '../store.js';
 import { copyDiagnostics, saveDiagnostics } from '../diagnostics.js';
 import { t } from '../i18n.js';
@@ -8,6 +8,7 @@ import { SHELLS, shellOf, modelDir } from '../assets.js';
 import AppLogo from './AppLogo.vue';
 
 const info = ref(null);
+const platform = window.desktop?.platform;
 watch(
   () => state.settingsOpen,
   async (open) => {
@@ -100,6 +101,14 @@ function setShell(shell) {
                 <div class="desc">{{ t.closeToTrayDesc }}</div>
               </div>
               <div class="switch" :class="{ on: settings.closeToTray }" @click="set('closeToTray', !settings.closeToTray)"></div>
+            </div>
+            <div v-if="platform !== 'linux'" class="setting-row">
+              <Power :size="18" class="ic" />
+              <div class="txt">
+                <div class="name">{{ t.launchAtLogin }}</div>
+                <div class="desc">{{ t.launchAtLoginDesc }}</div>
+              </div>
+              <div class="switch" :class="{ on: settings.launchAtLogin }" @click="set('launchAtLogin', !settings.launchAtLogin)"></div>
             </div>
           </template>
 
