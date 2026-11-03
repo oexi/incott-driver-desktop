@@ -1,8 +1,9 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop } from 'lucide-vue-next';
+import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse } from 'lucide-vue-next';
 import { state, settings, saveSettings, isDesktop } from '../store.js';
 import { t } from '../i18n.js';
+import { SHELLS, shellOf, modelDir } from '../assets.js';
 import AppLogo from './AppLogo.vue';
 
 const info = ref(null);
@@ -23,6 +24,12 @@ const accents = [
 
 function set(k, v) {
   settings[k] = v;
+  saveSettings();
+}
+
+/** 外壳配色按型号保存；null 表示默认图片。 */
+function setShell(shell) {
+  settings.shell = { ...settings.shell, [modelDir()]: shell };
   saveSettings();
 }
 </script>
@@ -59,6 +66,19 @@ function set(k, v) {
                 :title="k"
                 @click="set('accent', k)"
               ></button>
+            </div>
+          </div>
+          <div v-if="SHELLS[modelDir()]" class="setting-row">
+            <Mouse :size="18" class="ic" />
+            <div class="txt">
+              <div class="name">{{ t.shellColor }}</div>
+              <div class="desc">{{ t.shellColorDesc }}</div>
+            </div>
+            <div class="seg">
+              <button :class="{ on: !shellOf() }" @click="setShell(null)">{{ t.shellDefault }}</button>
+              <button v-for="s in SHELLS[modelDir()]" :key="s" :class="{ on: shellOf() === s }" @click="setShell(s)">
+                {{ t['shell' + s] }}
+              </button>
             </div>
           </div>
           <div class="setting-row">
