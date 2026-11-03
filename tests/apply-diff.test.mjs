@@ -1,5 +1,6 @@
 // 差分测试：在沙箱中运行原版网页驱动（tests/original，未修改的混淆代码）的 CBAccess.apply，
 // 与本项目移植的 IncottDevice.apply 对比发往鼠标的每一个 HID 报文，要求逐字节一致。
+// 唯一有意的差异：PAW3395 的 LOD 报文按官方桌面驱动修正（见 fixOriginalLog）。
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -107,6 +108,23 @@ function richMacro() {
   return m;
 }
 
+/**
+ * 原版网页驱动在 PAW3395 上把 lod 原样发出（1 mm→1，2 mm→2），整体错一位（issue #7）。
+ * 官方 Windows 桌面驱动发送 1 mm→0、2 mm→1；lod 为 0（0.7 mm，3395 不提供）时原版发 0，
+ * 恰好就是 1 mm，保持不变。这里把原版的 LOD 报文 [04 01 x] 换成修正后的值再对比。
+ */
+const LOD_FIX_3395 = { 0: 0, 1: 0, 2: 1 };
+function fixOriginalLog(log, sensor) {
+  if (sensor !== C.SENSOR_3395) return log;
+  return log.map((p) => {
+    if (p[0] !== 'F' || p[2] !== 4 || p[3] !== 1) return p;
+    assert.ok(p[4] in LOD_FIX_3395, `原版 LOD 值超出预期：${p[4]}`);
+    const q = p.slice();
+    q[4] = LOD_FIX_3395[p[4]];
+    return q;
+  });
+}
+
 async function runBoth({ profile, macro, flag, index, sensor, is8K, curOnBoard, proIndex }) {
   // 原版
   const ctx = loadOriginal();
@@ -138,7 +156,7 @@ async function runBoth({ profile, macro, flag, index, sensor, is8K, curOnBoard, 
   if (macro) macros.list.push(macro);
   const myOk = await dev.apply(pf, flag, index, { macros, profileIndex: proIndex });
 
-  return { origLog, myLog, origOk, myOk, origText, myText: pf.toText() };
+  return { origLog: fixOriginalLog(origLog, sensor), myLog, origOk, myOk, origText, myText: pf.toText() };
 }
 
 const S = [C.SENSOR_3950, C.SENSOR_3395];

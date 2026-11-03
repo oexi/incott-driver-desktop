@@ -12,6 +12,7 @@ import {
   dvar,
   getStDPI,
   getHwForDpi,
+  lodToHw,
   fMouse,
   fKeyboard,
   fMedia,
@@ -572,17 +573,9 @@ export class IncottDevice extends EventTarget {
     progress((pg += 5));
 
     if (flag & apLod) {
-      let lod = null;
-      if (this.sensor === SENSOR_3950) {
-        if (pf.lod === 0) lod = 2;
-        else if (pf.lod === 1) lod = 0;
-        else if (pf.lod === 2) lod = 1;
-      } else {
-        lod = pf.lod;
-      }
-      if (lod == null) lod = 0;
+      // 与原版不同：原版 3395 分支映射错误，这里以官方桌面驱动为准（见 lodToHw）
       await sleep(waitT);
-      if (!(await this.setLD(lod))) return false;
+      if (!(await this.setLD(lodToHw(pf.lod, this.sensor)))) return false;
     }
     progress((pg += 5));
 
