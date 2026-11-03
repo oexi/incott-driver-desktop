@@ -226,3 +226,19 @@ export function lodOptions(sensor) {
     { value: 2, label: '2 mm' },
   ];
 }
+
+/**
+ * LOD：配置文件中的 lod（0 = 0.7 mm，1 = 1 mm，2 = 2 mm）→ 写入鼠标的固件值。
+ *
+ * 固件编码为 0 = 1 mm、1 = 2 mm、2 = 0.7 mm（仅 PAW3950），两种传感器相同，
+ * 以官方 Windows 桌面驱动（Gaming Mouse Driver：1mm→0，2mm→1）为准。
+ * 原版网页驱动在 PAW3395 上直接发送 lod（1 mm→1、2 mm→2），整体错一位，
+ * 导致 G23 等机型调整 LOD 不生效（issue #7）；PAW3950 分支本来就是正确的。
+ */
+const LOD_HW = [2, 0, 1];
+
+export function lodToHw(lod, sensor) {
+  // PAW3395 不提供 0.7 mm（例如导入了 3950 的配置），按 1 mm 处理
+  if (sensor !== SENSOR_3950 && lod === 0) lod = 1;
+  return LOD_HW[lod] ?? LOD_HW[1];
+}
