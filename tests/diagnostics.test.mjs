@@ -23,20 +23,25 @@ const C = await import('../src/protocol/constants.js');
 const { IncottDevice } = await import('../src/protocol/device.js');
 const { StProfile, StProfileList } = await import('../src/protocol/profile.js');
 const store = await import('../src/store.js');
-const { collectDiagnostics, DIAG_QUERIES } = await import('../src/diagnostics.js');
-const { logEvent } = await import('../src/diaglog.js');
+const { collectDiagnostics, DIAG_QUERIES, buildFindings } = await import('../src/diagnostics.js');
+const { logEvent, events, consoleLog } = await import('../src/diaglog.js');
+const { STMacro, STMacroItem } = await import('../src/protocol/macro.js');
+const { t } = await import('../src/i18n.js');
 const { markRaw } = await import('vue');
 
 /** 按实测 G23V2（无线 8K）回包构造的假设备 */
-function fakeHid({ model = 14, keys: keyOverride = {} } = {}) {
+function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false } = {}) {
   const sent = [];
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
+  // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
+  const isStar = (b) => [0x80, 0x81, 0x82, 0x84, 0x88].includes(b[0]) || (b[0] === 0x85 && b[1] !== 3);
   const reply = (b) => {
+    if (zeroStar && isStar(b)) return [b[0], b[1], 0, 0, 0, 0, 0, 0];
     switch (b[0]) {
       case 0x8f:
         return [0x8f, 1, model, 2, 0xf0, 0xf1, 0, 0];
       case 0x8e:
-        return [0x8e, b[1], 0xc8, 0xd3, 0x2f, 0x63, 1, 0];
+        return [0x8e, b[1], 0xc8, 0xd3, 0x2f, 0x63, b[1] === 1 ? online : 0, 0];
       case 0x89:
         return [0x89, 0, 0, 0, 0, 0, 0, 0x5a];
       case 0x83:
@@ -127,8 +132,8 @@ test('已连接：汇总里有型号码、PID、连接时 143/142/137 原文、�
   assert.match(text, /last input reports:\n {2}\+ *\d+ms in#9 {2}3C 20 48 00 1F 1F 01 00/);
   // 解码与对照
   assert.match(text, /web: pwr=60% chg=0 rate=1000Hz dpi#=2 profile=1 \| desktop: state=60 bat=32% dpi#=72 rate=1000Hz/);
-  assert.match(text, /✓ dpi #6 x +device 6400 +profile 6400/);
-  assert.match(text, /✓ debounce +device 8 +profile 8/);
+  assert.match(text, /✓ dpi #6 x \* +device 6400 +profile 6400/);
+  assert.match(text, /✓ debounce \* +device 8 +profile 8/);
   assert.match(text, /≠ dpi current +device 2 +profile 1/);
   assert.match(text, /✓ key 4 \(m4\) +device 0xf40001 +profile 0xf40001/);
   assert.match(text, /= psd=1 model=14→G23V2 r3=02\(8K\)/);
@@ -136,6 +141,11 @@ test('已连接：汇总里有型号码、PID、连接时 143/142/137 原文、�
   // 其它
   assert.match(text, /test event/);
   assert.match(text, /\[4\] magic:incott_magic102;name:板载配置4/);
+  // 自动判断：在线、有状态包；配置里没有火力键时火力键参数不算不一致
+  assert.match(text, /### 自动判断\n- · 连接 \d+ 秒内收到 3 个状态包/);
+  assert.doesNotMatch(text, /不在线/);
+  assert.match(text, /⚠ 鼠标里的值与当前配置不一致：dpi current\n/);
+  assert.match(text, /· fire \(global\) \* +device 3x\/10ms +profile -/);
   assert.match(text, /ff05:0001 type=1 in\[9:32B\] out\[\] feat\[9:8B\]/);
   assert.match(text, /### Recent transfers \(raw\)/);
 
@@ -204,4 +214,130 @@ test('issue #10 场景：额外按键槽位、写入是否生效、按键导致�
   assert.match(text, /86 05 00 00 00 00 00 00 → 09 86 05 0A F1 00 00 00 00 .*= 0x0000f10a 配置切换/);
   await store.disconnect('test');
   granted = [];
+});
+
+/** 连上一个假设备（经过 store 的完整连接流程） */
+async function connectFake(opts) {
+  const hid = fakeHid(opts);
+  granted = [hid];
+  store.state.phase = 'welcome';
+  await store.autoConnect();
+  assert.equal(store.state.phase, 'ready');
+  return hid;
+}
+
+async function cleanup() {
+  await store.disconnect('test');
+  store.diag.lastFailure = null;
+  granted = [];
+}
+
+test('鼠标正忙（写入卡住）：不发送任何命令，只导出现有记录', async () => {
+  const hid = await connectFake();
+  const before = hid.sent.length;
+  const text = await collectDiagnostics({ busy: 'writing to the mouse (applying=true, pending=1)' });
+  assert.equal(hid.sent.length, before, '忙时不能发命令');
+  assert.match(text, /- busy: writing to the mouse/);
+  assert.match(text, /⚠ 鼠标正忙（writing to the mouse/);
+  assert.match(text, /### Summary \(connected, busy\)/);
+  assert.doesNotMatch(text, /### Raw queries/);
+  assert.match(text, /### Recent transfers \(raw\)/);
+  await cleanup();
+});
+
+test('连接卡住：导出正在进行的连接现场，不另外打开设备', async () => {
+  const hid = fakeHid();
+  granted = [hid];
+  const dev = new IncottDevice(hid);
+  await dev.readDps();
+  dev._hidError('receiveFeatureReport (cmd 142)', new Error('receiveFeatureReport timeout 3000ms'));
+  store.diag.connecting = { dev, since: Date.now() - 12000 };
+  store.state.phase = 'connecting';
+  const before = hid.sent.length;
+  const text = await collectDiagnostics({ busy: 'connecting for 12 s' });
+  store.diag.connecting = null;
+  store.state.phase = 'welcome';
+  granted = [];
+  assert.equal(hid.sent.length, before);
+  assert.match(text, /### Connecting 093a:522c "incott 8K wireless mouse" \(in progress for 12 s\)/);
+  assert.match(text, /model code {5}14 → G23V2/);
+  assert.match(text, /### HID errors \/ timeouts\n```text\n\[connecting device\]\n.*receiveFeatureReport \(cmd 142\): receiveFeatureReport timeout 3000ms/);
+  assert.match(text, /⚠ HID 读写错误 \/ 超时 1 次/);
+  assert.match(text, /### Connecting: transfers so far/);
+});
+
+test('宏只导出结构，不含录制的按键内容；配置里引用了已删除的宏会指出来', async () => {
+  await connectFake();
+  const m = new STMacro('my login');
+  m.uid = 4242;
+  for (const k of ['P', 'A', 'S', 'S']) m.item.push(new STMacroItem(k, 10, true), new STMacroItem(k, 20, false));
+  m.item.push(new STMacroItem('Q', 5, true)); // 没有抬起
+  store.state.macros.list.push(m);
+  const pf = store.state.profiles.list[0];
+  pf.key[3] = new C.KeyInfo(C.fJuji, 0);
+  pf.key[3].itemdata = 4242;
+  pf.key[4] = new C.KeyInfo(C.fJuji, 0);
+  pf.key[4].itemdata = 999; // 宏库里没有
+  const text = await collectDiagnostics();
+  assert.doesNotMatch(text, /item\[/);
+  assert.doesNotMatch(text, /my login/);
+  assert.match(text, /#1 uid=4242 actions=9\/71 unbalanced=1 total-delay=125ms loop=cycle×1 bound=P1-B4 hw=ok/);
+  assert.match(text, /⚠ 配置里绑定的宏已不在宏库中：P1-B5 uid=999/);
+  store.state.macros.list.splice(0);
+  await cleanup();
+});
+
+test('诊断信息总长度不超过上限，超出时从最早的记录截掉', async () => {
+  await connectFake();
+  const ev = events.length;
+  const co = consoleLog.length;
+  for (let i = 0; i < 200; i++) logEvent(`filler event ${i} ${'x'.repeat(380)}`);
+  for (let i = 0; i < 80; i++) consoleLog.push({ t: i, level: 'error', msg: 'e'.repeat(500) });
+  const text = await collectDiagnostics();
+  events.splice(ev);
+  consoleLog.splice(co);
+  assert.ok(text.length <= 60000, `length ${text.length}`);
+  assert.match(text, /older lines omitted/);
+  assert.match(text, /filler event 199/, '最新的记录要保留');
+  assert.match(text, /### Recent transfers \(raw\)/);
+  await cleanup();
+});
+
+test('固件不支持 * 命令（全 0 回包）：对照表里这些项目标为 ?，不算不一致', async () => {
+  await connectFake({ zeroStar: true });
+  store.state.firstRun = false;
+  const text = await collectDiagnostics();
+  assert.match(text, /note: every \* command replied all zeros/);
+  assert.match(text, /\? debounce \* +device 0 +profile 8/);
+  assert.match(text, /\? rate \* +device 1000Hz/);
+  assert.match(text, /· 固件对官方桌面驱动专用的读命令（标 \*）只回了全 0/);
+  assert.doesNotMatch(text, /不一致：.*debounce/);
+  assert.doesNotMatch(text, /固件版本/);
+  await cleanup();
+});
+
+test('issue #6 / #11 场景：接收器报告鼠标不在线、连接后一直没有状态包', async () => {
+  await connectFake({ online: 0 });
+  store.state.device.connectedAt -= 30000;
+  const text = await collectDiagnostics();
+  assert.match(text, /mouse online {3}8E01 r6=0 → NOT ONLINE\?/);
+  assert.match(text, /⚠ 接收器报告鼠标不在线/);
+  assert.match(text, /⚠ 连接 30 秒内没有收到状态包/);
+  await cleanup();
+});
+
+test('自动判断：找不到设备、PID 不认识、没有响应、Linux 权限', () => {
+  const tr = t.value;
+  let f = buildFindings({ noIncott: true, sysHid: { devices: [{ vendorId: 0x046d, productId: 0xc52b }] } }, tr);
+  assert.match(f.join('\n'), /软件没有看到任何 INCOTT 设备/);
+  assert.match(f.join('\n'), /系统识别到 1 个 HID 设备，但没有 Pixart（093A）设备/);
+  f = buildFindings({ noIncott: true, sysHid: { devices: [{ vendorId: 0x093a, productId: 0x5a2c, name: 'incott 8K' }] } }, tr);
+  assert.match(f.join('\n'), /PID 不是已知的.*093a:5a2c "incott 8K"/);
+  f = buildFindings({ lastFailure: { error: 'NO_RESPONSE' }, linuxDenied: ['/dev/hidraw3'] }, tr);
+  assert.match(f.join('\n'), /⚠ 接收器 \/ 鼠标对识别命令（8F）没有任何回应/);
+  assert.match(f.join('\n'), /⚠ 没有 \/dev\/hidraw3 的读写权限/);
+  f = buildFindings({ lastFailure: { error: 'UNSUPPORTED_DEVICE', modelCode: 7 } }, tr);
+  assert.match(f.join('\n'), /型号码 7 不在支持列表中/);
+  f = buildFindings({ connected: true, statusCount: 12, sinceConnect: 40, prevLog: { cleanExit: true } }, tr);
+  assert.deepEqual(f, ['· 连接 40 秒内收到 12 个状态包', '· 没有发现明显异常']);
 });

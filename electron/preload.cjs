@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld('desktop', {
   saveText: (opts) => ipcRenderer.invoke('file:save-text', opts),
   openText: (opts) => ipcRenderer.invoke('file:open-text', opts),
   copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
+  log: {
+    append: (line) => ipcRenderer.send('log:append', line),
+    previous: () => ipcRenderer.invoke('log:previous'),
+    onMainEvent: (cb) => ipcRenderer.on('diag:main-event', (_e, msg) => cb(msg)),
+  },
+  hidScan: (on) => ipcRenderer.invoke('diag:hid-scan', on),
   linux: {
     hidrawStatus: () => ipcRenderer.invoke('linux:hidraw-status'),
     installUdev: () => ipcRenderer.invoke('linux:install-udev'),

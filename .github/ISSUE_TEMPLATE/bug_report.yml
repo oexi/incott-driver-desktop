@@ -1,0 +1,68 @@
+name: 问题反馈 / Bug report
+description: 连接不上、设置不生效、显示不对等问题 / Connection problems, settings not applied, wrong display…
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈！请先在软件里打开「设置 → 问题反馈 → 复制」（连接失败或找不到设备时，欢迎页上也有这个按钮），把诊断信息贴到最下面。诊断信息开头的「自动判断」可能已经指出了原因。
+        Thanks! In the app, open **Settings → Feedback → Copy** (also on the welcome page when connecting fails) and paste the diagnostics at the bottom. The "Findings" at the top may already point to the cause.
+  - type: input
+    id: model
+    attributes:
+      label: 鼠标型号 / Mouse model
+      description: 最好写官方驱动里显示的型号 / As shown in the official driver, if possible
+      placeholder: G23 Pro
+    validations:
+      required: true
+  - type: dropdown
+    id: connection
+    attributes:
+      label: 连接方式 / Connection
+      options:
+        - 有线 / Wired
+        - 2.4G 1K 接收器 / 1K receiver
+        - 2.4G 8K 接收器 / 8K receiver
+        - 不确定 / Not sure
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: 系统与软件版本 / OS and app version
+      placeholder: Windows 11 24H2 · Incott Driver 1.0.6
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: 问题描述 / What happened
+      description: 你做了什么、期望什么、实际发生了什么 / What you did, what you expected, what actually happened
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤 / Steps to reproduce
+      placeholder: |
+        1.
+        2.
+        3.
+  - type: dropdown
+    id: official
+    attributes:
+      label: 官方驱动下是否正常？ / Does the official driver work?
+      options:
+        - 正常 / Works
+        - 也不正常 / Also broken
+        - 没试过 / Not tried
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 诊断信息 / Diagnostics
+      description: |
+        直接粘贴即可；太长贴不进去时，用「保存」导出 .txt 文件后拖进这里。
+        如果官方驱动正常：先在官方驱动里设好，关闭官方驱动，再打开本软件、不做任何修改直接复制诊断信息，这样能看到官方驱动写进鼠标的值。必要时可以按[抓包指南](https://github.com/oexi/incott-driver-desktop/blob/main/docs/usb-capture.md)录一段官方驱动的 USB 通信。
+        Paste as is, or use "Save" and drag the .txt file here if it is too long. If the official driver works: set things up there, close it, then open this app and copy the diagnostics without changing anything, so the values written by the official driver are visible. See the [capture guide](https://github.com/oexi/incott-driver-desktop/blob/main/docs/usb-capture.md) if needed.
+      placeholder: '## INCOTT Driver diagnostics …'

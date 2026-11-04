@@ -1,8 +1,8 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle } from 'lucide-vue-next';
+import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle, Download } from 'lucide-vue-next';
 import { state, settings, saveSettings, isDesktop } from '../store.js';
-import { copyDiagnostics } from '../diagnostics.js';
+import { copyDiagnostics, saveDiagnostics } from '../diagnostics.js';
 import { t } from '../i18n.js';
 import { SHELLS, shellOf, modelDir } from '../assets.js';
 import AppLogo from './AppLogo.vue';
@@ -114,6 +114,11 @@ function setShell(shell) {
               <LoaderCircle v-if="state.diagRunning" :size="14" class="spin" />
               <ClipboardCopy v-else :size="14" />
               {{ state.diagRunning ? t.diagRunning : t.diagCopyBtn }}
+            </button>
+            <!-- 内容太长贴不进 Issue / 聊天软件时，保存为文件再附上 -->
+            <button class="btn sm diag-btn" :disabled="state.diagRunning" @click="saveDiagnostics">
+              <Download :size="14" />
+              {{ t.diagSaveBtn }}
             </button>
           </div>
 
