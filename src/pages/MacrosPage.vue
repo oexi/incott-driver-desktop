@@ -3,7 +3,7 @@ import { ref, computed, watch, onBeforeUnmount } from 'vue';
 import { Plus, FileUp, FileDown, Trash2, Workflow, Circle, Square, Keyboard, MousePointer2, ArrowDown, ArrowUp, Timer, X, Save, Hourglass } from 'lucide-vue-next';
 import { keycodeToKeyname } from '../protocol/keytable.js';
 import { STMacroItem, MAX_ACTION, MAX_DELAY, MAX_CYCLE, lpCycle } from '../protocol/macro.js';
-import { state, createMacro, updateMacro, deleteMacro, importMacro, exportMacro, macroButtons, toast } from '../store.js';
+import { state, createMacro, updateMacro, deleteMacro, importMacro, exportMacro, macroUsage, toast } from '../store.js';
 import { t } from '../i18n.js';
 
 const selUid = ref(state.macros.list[0]?.uid ?? null);
@@ -200,7 +200,7 @@ function togglePress(i) {
 // 必须放在 recording 等状态声明之后：立即执行时 loadDraft 会用到它们
 watch(selUid, loadDraft, { immediate: true });
 
-const usedBy = computed(() => (selUid.value == null ? [] : macroButtons(selUid.value)));
+const usedBy = computed(() => (selUid.value == null ? [] : macroUsage(selUid.value)));
 const totalTime = computed(() => (draft.value ? draft.value.item.reduce((s, i) => s + (Number(i.delay) || 0), 0) : 0));
 const isMouseKey = (k) => /Button$/.test(k);
 </script>
@@ -217,7 +217,7 @@ const isMouseKey = (k) => /Button$/.test(k);
         <button v-for="m in state.macros.list" :key="m.uid" class="mitem" :class="{ on: m.uid == selUid }" @click="selUid = m.uid">
           <Workflow :size="16" />
           <span class="mn">{{ m.name }}</span>
-          <span v-if="macroButtons(m.uid).length" class="badge accent">{{ t.macroInUse }}</span>
+          <span v-if="macroUsage(m.uid).length" class="badge accent">{{ t.macroInUse }}</span>
           <span class="tail">
             <span class="muted num cnt">{{ m.item.length }}</span>
             <span class="row-del" :title="t.delete" @click.stop="removeFromList(m.uid)"><Trash2 :size="14" /></span>
@@ -240,7 +240,7 @@ const isMouseKey = (k) => /Button$/.test(k);
         <button class="btn primary sm" :disabled="!dirty" @click="save"><Save :size="14" />{{ t.save }}</button>
       </div>
 
-      <div v-if="usedBy.length" class="used muted">{{ t.macroUsedBy }}：{{ usedBy.map((i) => t.btnName[i]).join('、') }}</div>
+      <div v-if="usedBy.length" class="used muted">{{ t.macroUsedBy }}：{{ usedBy.map((u) => `${t.profileN(u.profile + 1)} · ${t.btnName[u.button]}`).join('、') }}</div>
 
       <div class="loop">
         <span class="label">{{ t.macroLoop }}</span>

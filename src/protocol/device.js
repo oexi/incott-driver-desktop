@@ -513,7 +513,10 @@ export class IncottDevice extends EventTarget {
       for (let i = 0; i < klen; i++) {
         progress((pg += pgstep));
         if (index !== 255 && i !== index) continue;
-        const k = pf.key[i];
+        let k = pf.key[i];
+        // 与原版不同：宏库里找不到绑定的宏（已删除 / 来自导入的配置）时，原版直接中断整个写入，
+        // 导致后面的按键、DPI、回报率等都写不进去。这里改为按该键的默认功能写入，继续后续项目。
+        if (k.major === fJuji && !ctx.macros?.find(k.itemdata)) k = dvar.key[i];
         if (k.major === fMouse && k.minor === favFIRE) {
           let lp = k.itemdata & 65535;
           let ir = (k.itemdata >> 16) & 65535;
@@ -524,7 +527,7 @@ export class IncottDevice extends EventTarget {
         } else if (k.major === fJuji) {
           const t = ctx.macros.find(k.itemdata);
           const b = macroToHw(t, i);
-          if (!t || !b) return false;
+          if (!b) return false;
           await sleep(waitT);
           if (!(await this.setJuJi(i, b))) return false;
         }

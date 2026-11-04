@@ -149,6 +149,14 @@ async function processQueue() {
     let ok = false;
     if (job.overlay) state.progress = { visible: true, pct: 0 };
     if (dev && curProfile.value) {
+      // 绑定了已不存在的宏的按键先恢复默认，让界面与写入鼠标的内容一致
+      if (job.flag & C.apKey) {
+        const fixed = dropMissingMacros(curProfile.value, job.index);
+        if (fixed.length) {
+          persist();
+          toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
+        }
+      }
       state.applying = true;
       try {
         ok = await dev.apply(curProfile.value, job.flag, job.index, {
@@ -699,11 +707,28 @@ export function createMacro(name) {
   return state.macros.list[state.macros.list.length - 1];
 }
 
-export function macroButtons(uid) {
-  const pf = curProfile.value;
-  if (!pf) return [];
-  // eslint-disable-next-line eqeqeq
-  return pf.key.map((k, i) => (k.major === C.fJuji && k.itemdata == uid ? i : -1)).filter((i) => i >= 0);
+/** 宏在全部 4 个板载配置中的使用情况：[{ profile, button }] */
+export function macroUsage(uid) {
+  const out = [];
+  state.profiles.list.forEach((pf, p) =>
+    pf.key.forEach((k, i) => {
+      // eslint-disable-next-line eqeqeq
+      if (k.major === C.fJuji && k.itemdata == uid) out.push({ profile: p, button: i });
+    })
+  );
+  return out;
+}
+
+/** 把绑定了宏库中已不存在的宏的按键恢复为默认功能（index = 255 表示全部按键），返回被恢复的按键序号 */
+function dropMissingMacros(pf, index = 255) {
+  const fixed = [];
+  pf.key.forEach((k, i) => {
+    if ((index === 255 || i === index) && k.major === C.fJuji && !state.macros.find(k.itemdata)) {
+      pf.key[i] = C.dvar.key[i].copy();
+      fixed.push(i);
+    }
+  });
+  return fixed;
 }
 
 export async function updateMacro(uid, data) {
@@ -714,20 +739,31 @@ export async function updateMacro(uid, data) {
   m.cycle = data.cycle;
   m.item = data.item;
   saveMacros(state.macros);
-  const used = macroButtons(uid);
+  // 只有当前配置在鼠标里；其它配置切换时会完整写入
+  const used = macroUsage(uid).filter((u) => u.profile === state.curIndex);
   if (used.length && state.device) {
     toast(t.value.macroResync, 'info');
-    for (const i of used) await chunk86(C.apKey, i, { overlay: true });
+    for (const u of used) await chunk86(C.apKey, u.button, { overlay: true });
   } else {
     toast(t.value.macroSaved, 'success');
   }
 }
 
 export async function deleteMacro(uid) {
-  const ok = await confirmDialog({ title: t.value.delete, message: t.value.macroDeleteMsg, danger: true, okText: t.value.delete, icon: 'warn' });
+  const n = macroUsage(uid).length;
+  const message = n ? t.value.macroDeleteUsedMsg(n) : t.value.macroDeleteMsg;
+  const ok = await confirmDialog({ title: t.value.delete, message, danger: true, okText: t.value.delete, icon: 'warn' });
   if (!ok) return false;
+  const used = macroUsage(uid);
   state.macros.remove(uid);
   saveMacros(state.macros);
+  if (!used.length) return true;
+  // 与原版不同：4 个配置里绑定该宏的按键恢复默认，否则界面仍显示"宏"，鼠标里也还是旧宏
+  for (const { profile, button } of used) state.profiles.list[profile].key[button] = C.dvar.key[button].copy();
+  persist();
+  if (state.device) {
+    for (const u of used) if (u.profile === state.curIndex) chunk86(C.apKey, u.button);
+  }
   return true;
 }
 
