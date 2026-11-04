@@ -8,6 +8,7 @@ import { StProfile, StProfileList, saveProfiles, loadProfiles } from './protocol
 import { STMacro, STMacroList, saveMacros, loadMacros } from './protocol/macro.js';
 import { MockHidDevice } from './protocol/mock.js';
 import { t, setLang } from './i18n.js';
+import { logEvent } from './diaglog.js';
 
 const desktop = typeof window !== 'undefined' ? window.desktop : undefined;
 const USE_MOCK = typeof location !== 'undefined' && /[?&]mock\b/.test(location.search);
@@ -84,12 +85,26 @@ export const state = reactive({
   toasts: [],
   dialog: null,
   settingsOpen: false,
+  diagRunning: false,
 });
 
 loadMacros(state.macros);
 
 export const curProfile = computed(() => state.profiles.list[state.curIndex] || null);
 export const sensorCfg = computed(() => C.getStDPI(state.info.sensor) || C.dvar.stDPI[0]);
+/** 实际写入鼠标的回报率：非 8K 连接下配置里的 2000+ Hz 按 1000 Hz（与 IncottDevice.writableRate 一致） */
+export const effectiveRate = computed(() => {
+  const r = curProfile.value?.usbrate || 0;
+  return !state.info.is8K && C.RATE_8K_ONLY.includes(r) ? 1000 : r;
+});
+
+/* -------------------------------------------------------------- 诊断 */
+
+// 不进入响应式系统：供「复制诊断信息」读取
+export const diag = markRaw({
+  running: false,
+  lastFailure: null, // { time, productId, productName, error, modelCode, replies, inputCount, inputById, xferLog, inputLog }
+});
 
 /* ---------------------------------------------------------- 提示与对话框 */
 
@@ -141,6 +156,26 @@ export function chunk86(flag, index, { overlay = false } = {}) {
   });
 }
 
+const FLAG_NAMES = [
+  [C.apKey, 'key'],
+  [C.apDpi, 'dpi'],
+  [C.apRate, 'rate'],
+  [C.apLod, 'lod'],
+  [C.apSensor, 'sensor'],
+  [C.apSensorMode, 'sensorMode'],
+  [C.apDpiLevel, 'dpiLevel'],
+  [C.apOnboardIndex, 'onboard'],
+  [C.apReceiverLED, 'rxLed'],
+  [C.apDebounce, 'debounce'],
+  [C.apSleepTime, 'sleep'],
+  [C.apReset, 'RESET'],
+  [C.apProSw, 'profileSwitch'],
+];
+export function flagNames(flag) {
+  if ((flag & C.apALL) === C.apALL) return ['ALL', ...FLAG_NAMES.filter(([b]) => b > C.apALL && flag & b).map(([, n]) => n)].join('+');
+  return FLAG_NAMES.filter(([b]) => flag & b).map(([, n]) => n).join('+') || String(flag);
+}
+
 async function processQueue() {
   processing = true;
   while (queue.length) {
@@ -158,6 +193,7 @@ async function processQueue() {
         }
       }
       state.applying = true;
+      const started = Date.now();
       try {
         ok = await dev.apply(curProfile.value, job.flag, job.index, {
           macros: state.macros,
@@ -171,6 +207,9 @@ async function processQueue() {
         ok = false;
       }
       state.applying = false;
+      logEvent(`apply ${flagNames(job.flag)} index=${job.index} profile=${state.curIndex + 1} → ${ok ? 'ok' : 'FAILED'} ${Date.now() - started}ms`);
+    } else {
+      logEvent(`apply ${flagNames(job.flag)} skipped (no device/profile)`);
     }
     if (job.overlay) {
       state.progress.pct = 100;
@@ -225,7 +264,7 @@ export async function checkLinuxPermission() {
 
 /** 自动扫描已授权设备并连接 */
 export async function autoConnect() {
-  if (state.phase !== 'welcome') return;
+  if (state.phase !== 'welcome' || diag.running) return;
   state.scanning = true;
   try {
     const hid = pickDevice(await grantedDevices());
@@ -260,10 +299,24 @@ async function connectTo(hid) {
   state.phase = 'connecting';
   state.error = null;
   const dev = markRaw(new IncottDevice(hid));
+  logEvent(`connect start ${hid.productId?.toString(16)} "${hid.productName || ''}" opened=${hid.opened}`);
   try {
     await dev.open();
   } catch (err) {
     console.warn('[connect]', err);
+    logEvent(`connect FAILED: ${err?.message || err} (modelCode=${dev.modelCode})`);
+    diag.lastFailure = {
+      time: new Date().toISOString(),
+      productId: hid.productId,
+      productName: hid.productName || '',
+      error: String(err?.message || err),
+      modelCode: dev.modelCode,
+      replies: { ...dev.replies },
+      inputCount: dev.inputCount,
+      inputById: { ...dev.inputById },
+      xferLog: dev.xferLog.slice(),
+      inputLog: dev.inputLog.slice(),
+    };
     state.phase = 'welcome';
     const msg = String(err && err.message);
     let message = t.value.unsupportedDevice;
@@ -281,7 +334,11 @@ async function connectTo(hid) {
     } catch (err) {
       console.warn('[readKeyMap]', err);
     }
+    logEvent(`first run: key map read ${keyMap ? keyMap.map((k) => (k ? k.toText() : 'null')).join(' | ') : 'failed'}`);
   }
+  logEvent(
+    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard}`
+  );
   enterDevice(dev, keyMap);
 }
 
@@ -296,19 +353,22 @@ function hasStoredProfiles(devname) {
 let statusSeen = false;
 let verifying = false;
 
-async function verifyProfileIndex() {
+async function verifyProfileIndex(fromStatus) {
   const dev = state.device;
   if (!dev || verifying) return;
   verifying = true;
   try {
     const k = await dev.readProfileIndex();
-    if (state.device !== dev || state.applying || state.pending) return;
-    if (k == null || k < 0 || k > 3 || k === state.curIndex) return;
+    const note = `status profile=${fromStatus} ui=${state.curIndex} → key9=${k}`;
+    if (state.device !== dev || state.applying || state.pending) return logEvent(`${note}: ignored (busy)`);
+    if (k == null || k < 0 || k > 3 || k === state.curIndex) return logEvent(`${note}: no change`);
     if (state.firstRun) {
       // 首次使用：直接跟随鼠标，不写入
+      logEvent(`${note}: follow (first run)`);
       state.curIndex = k;
       persist();
     } else {
+      logEvent(`${note}: switch profile`);
       switchProfile(k);
     }
   } catch (err) {
@@ -327,7 +387,7 @@ function enterDevice(dev, keyMap) {
     wireless: dev.iswireless,
     is8K: dev.is8KReceiver,
     pink: dev.isPink,
-    power: -1, // 电量以设备主动上报为准（原版同样需要等待同步）
+    power: dev.power, // 取自 137 回包（无效时为 -1，等待设备主动上报）
     charging: false,
     rate: dev.curUSBRate,
     productName: dev.hid.productName || '',
@@ -371,6 +431,7 @@ function enterDevice(dev, keyMap) {
   statusSeen = false;
   persist();
 
+  lastStatus = null;
   dev.addEventListener('status', onStatus);
   state.phase = 'ready';
 }
@@ -383,14 +444,29 @@ function setCurDpi(index) {
   pf.curDpi = index;
 }
 
+/** 状态包里的回报率 / DPI 档 / 板载序号 / 充电变化记入事件日志（例如按鼠标上的回报率键会体现在这里） */
+let lastStatus = null;
+function logStatusChange(s) {
+  const p = lastStatus;
+  lastStatus = s;
+  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} profile=${s.profileIndex} power=${s.power} charging=${s.charging}`);
+  const diff = [];
+  if (p.rate !== s.rate) diff.push(`rate ${p.rate}→${s.rate}`);
+  if (p.dpiIndex !== s.dpiIndex) diff.push(`dpi# ${p.dpiIndex}→${s.dpiIndex}`);
+  if (p.profileIndex !== s.profileIndex) diff.push(`profile ${p.profileIndex}→${s.profileIndex}`);
+  if (p.charging !== s.charging) diff.push(`charging ${p.charging}→${s.charging}`);
+  if (diff.length) logEvent(`status: ${diff.join(', ')}${state.applying ? ' (while applying)' : ''}`);
+}
+
 /** 原版 irServer：处理鼠标主动上报的状态 */
 function onStatus(e) {
   const s = e.detail;
+  logStatusChange(s);
   if (state.applying) return;
   statusSeen = true;
   // 部分固件（实测 G23V2）的状态包里板载序号位恒为 0，原版直接据此切换会"跳回配置 1"。
   // 这里先向鼠标读取真实序号确认，确实变化（例如按了鼠标上的配置切换键）才切换。
-  if (s.profileIndex !== state.curIndex) verifyProfileIndex();
+  if (s.profileIndex !== state.curIndex) verifyProfileIndex(s.profileIndex);
   state.info.charging = s.charging;
   state.info.power = s.power;
   if (s.rate) {
@@ -404,8 +480,9 @@ function onStatus(e) {
   setCurDpi(s.dpiIndex);
 }
 
-export async function disconnect() {
+export async function disconnect(reason = 'user') {
   const dev = state.device;
+  logEvent(`disconnect (${reason})${queue.length ? `, ${queue.length} pending job(s) dropped` : ''}`);
   for (const job of queue.splice(0)) job.resolve(false);
   if (dev) {
     dev.removeEventListener('status', onStatus);
@@ -421,11 +498,13 @@ export async function disconnect() {
 export function initHidEvents() {
   if (!navigator.hid || USE_MOCK) return;
   navigator.hid.addEventListener('disconnect', (e) => {
+    logEvent(`hid disconnect event ${e.device.productId?.toString(16)} "${e.device.productName || ''}"`);
     if (state.device && state.device.hid === e.device) {
-      disconnect().then(() => setTimeout(autoConnect, 400));
+      disconnect('device removed').then(() => setTimeout(autoConnect, 400));
     }
   });
-  navigator.hid.addEventListener('connect', () => {
+  navigator.hid.addEventListener('connect', (e) => {
+    logEvent(`hid connect event ${e.device.productId?.toString(16)} "${e.device.productName || ''}"`);
     if (state.phase === 'welcome') setTimeout(autoConnect, 500);
   });
 }
@@ -435,6 +514,7 @@ export function initHidEvents() {
 /** 原版 onBoardClick：切换板载配置并完整写入 */
 export function switchProfile(index) {
   if (index < 0 || index > 3) return;
+  logEvent(`switch profile ${state.curIndex + 1} → ${index + 1}`);
   state.curIndex = index;
   return chunk86(C.apALL | C.apProSw, 255, { overlay: true });
 }
@@ -459,8 +539,15 @@ export async function importProfile(text) {
     text = r.content;
   }
   const p = new StProfile('', C.dvar, state.info.sensor);
-  if (!p.initByText(text)) return toast(t.value.importFailed, 'error');
-  if (p.dpisensor !== state.info.sensor) return toast(t.value.importWrongSensor, 'error');
+  if (!p.initByText(text)) {
+    logEvent('import profile: parse failed');
+    return toast(t.value.importFailed, 'error');
+  }
+  if (p.dpisensor !== state.info.sensor) {
+    logEvent(`import profile: wrong sensor ${p.dpisensor} ≠ ${state.info.sensor}`);
+    return toast(t.value.importWrongSensor, 'error');
+  }
+  logEvent(`import profile into ${state.curIndex + 1}`);
   const cur = curProfile.value;
   p.name = cur.name;
   p.uid = cur.uid;
@@ -629,7 +716,7 @@ export function setSensorMode(mode) {
   const pf = curProfile.value;
   if (!pf) return;
   pf.sensormode = mode;
-  if (pf.usbrate < 2000) chunk86(C.apSensorMode, 0);
+  if (effectiveRate.value < 2000) chunk86(C.apSensorMode, 0);
 }
 
 export function setLod(lod) {
@@ -694,6 +781,7 @@ export async function factoryReset() {
   const pf = curProfile.value;
   if (!pf) return;
   state.xySplit = false;
+  logEvent(`factory reset profile ${state.curIndex + 1}`);
   pf.reset(C.dvar, state.info.sensor);
   return chunk86(C.apALL | C.apReset, 255, { overlay: true });
 }

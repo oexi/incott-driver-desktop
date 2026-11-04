@@ -1,8 +1,9 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, nativeTheme, shell, dialog, Menu, Tray, nativeImage, session } = require('electron');
+const { app, BrowserWindow, ipcMain, nativeTheme, shell, dialog, Menu, Tray, nativeImage, session, clipboard } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
+const os = require('node:os');
 const { linuxHidrawStatus, installUdevRules } = require('./linux-udev.cjs');
 
 const INCOTT_VENDOR_ID = 0x093a;
@@ -143,12 +144,36 @@ function senderWindow(e) {
   return BrowserWindow.fromWebContents(e.sender);
 }
 
+function osPrettyName() {
+  if (process.platform !== 'linux') return `${os.type()} ${os.release()}`;
+  try {
+    const m = /^PRETTY_NAME="?([^"\n]*)"?/m.exec(fs.readFileSync('/etc/os-release', 'utf8'));
+    return `${m ? m[1] : 'Linux'} (kernel ${os.release()})`;
+  } catch {
+    return `Linux ${os.release()}`;
+  }
+}
+
+function installKind() {
+  if (!app.isPackaged) return 'dev';
+  if (process.env.APPIMAGE) return 'AppImage';
+  if (process.env.PORTABLE_EXECUTABLE_DIR) return 'portable';
+  if (process.platform === 'linux' && process.execPath.startsWith('/opt/')) return 'system package';
+  return 'packaged';
+}
+
 ipcMain.handle('app:info', () => ({
   version: app.getVersion(),
   platform: process.platform,
   arch: process.arch,
   electron: process.versions.electron,
   chrome: process.versions.chrome,
+  // 以下仅用于诊断信息（不含用户名、路径等个人信息）
+  os: osPrettyName(),
+  locale: app.getLocale(),
+  install: installKind(),
+  session: process.env.XDG_SESSION_TYPE || '',
+  desktop: process.env.XDG_CURRENT_DESKTOP || '',
 }));
 
 ipcMain.on('win:minimize', (e) => senderWindow(e)?.minimize());
@@ -190,6 +215,11 @@ ipcMain.handle('file:open-text', async (e, { filters }) => {
   const p = res.filePaths[0];
   const content = await fs.promises.readFile(p, 'utf8');
   return { ok: true, path: p, name: path.basename(p), content };
+});
+
+ipcMain.handle('clipboard:write-text', (_e, text) => {
+  clipboard.writeText(String(text ?? ''));
+  return true;
 });
 
 ipcMain.handle('linux:hidraw-status', () => linuxHidrawStatus(INCOTT_VENDOR_ID));

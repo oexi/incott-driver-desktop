@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('desktop', {
   openExternal: (url) => ipcRenderer.send('open:external', url),
   saveText: (opts) => ipcRenderer.invoke('file:save-text', opts),
   openText: (opts) => ipcRenderer.invoke('file:open-text', opts),
+  copyText: (text) => ipcRenderer.invoke('clipboard:write-text', text),
   linux: {
     hidrawStatus: () => ipcRenderer.invoke('linux:hidraw-status'),
     installUdev: () => ipcRenderer.invoke('linux:install-udev'),

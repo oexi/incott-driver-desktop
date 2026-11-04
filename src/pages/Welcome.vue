@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed } from 'vue';
-import { Plug, LoaderCircle, ShieldCheck, TriangleAlert, Copy } from 'lucide-vue-next';
+import { Plug, LoaderCircle, ShieldCheck, TriangleAlert, Copy, ClipboardCopy } from 'lucide-vue-next';
 import { state, userConnect, checkLinuxPermission, toast } from '../store.js';
+import { copyDiagnostics } from '../diagnostics.js';
 import { t } from '../i18n.js';
 
 const installing = ref(false);
@@ -66,7 +67,15 @@ function copyRules() {
           <div v-else-if="state.scanning" class="st-head"><LoaderCircle :size="18" class="spin accent" />{{ t.searching }}</div>
           <div v-else class="st-head">{{ t.noDevice }}</div>
           <p class="st-desc">{{ state.error ? state.error.message : t.noDeviceHint }}</p>
-          <button class="btn primary lg" @click="userConnect()"><Plug :size="18" />{{ t.connect }}</button>
+          <div class="row">
+            <button class="btn primary lg" @click="userConnect()"><Plug :size="18" />{{ t.connect }}</button>
+            <!-- 连接失败（如型号不受支持）时最需要原始数据 -->
+            <button v-if="state.error" class="btn ghost" :disabled="state.diagRunning" @click="copyDiagnostics">
+              <LoaderCircle v-if="state.diagRunning" :size="15" class="spin" />
+              <ClipboardCopy v-else :size="15" />
+              {{ state.diagRunning ? t.diagRunning : t.diagCopy }}
+            </button>
+          </div>
         </template>
       </div>
 

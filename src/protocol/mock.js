@@ -66,8 +66,12 @@ export class MockHidDevice extends EventTarget {
         r[7] = 1;
         break;
       case 137:
-        r[4] = s.rateIx; // 实测回报率在 data[3]
-        r[7] = s.lod << 4;
+        // 与实测 G23V2 / 官方桌面驱动一致：data[1] 电量、data[3] 回报率、data[4] 当前档、data[7] = 0x5A
+        r[2] = s.power;
+        r[3] = s.charging ? 1 : 0;
+        r[4] = s.rateIx;
+        r[5] = s.dpiIx;
+        r[8] = 0x5a;
         break;
       case 131:
         r[2] = s.levels;

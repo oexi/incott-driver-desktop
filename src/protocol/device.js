@@ -7,6 +7,7 @@ import {
   PID_WIRELESS,
   KeyInfo,
   RATE_HW,
+  RATE_8K_ONLY,
   SENSOR_3395,
   SENSOR_3950,
   dvar,
@@ -61,13 +62,16 @@ import { macroToHw } from './macro.js';
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 设备型号识别（readDps 中 rData[2]） */
-function modelFromCode(code) {
+export function modelFromCode(code) {
   switch (code) {
     case 1:
       return 'Ghero';
+    // 4 / 5 网页驱动不认，官方桌面驱动 GamingMouse.exe 分别按 G23 / G24 处理（sub_42F7F0）
     case 2:
+    case 4:
       return 'G23';
     case 3:
+    case 5:
       return 'G24';
     case 6:
       return 'G29';
@@ -196,16 +200,51 @@ export function parseInputReport(data) {
   };
 }
 
+/** 字节数组 / DataView → "09 8F 01 …" */
+export function toHex(data) {
+  if (!data) return '';
+  const u8 = data instanceof DataView ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : Uint8Array.from(data);
+  return Array.from(u8, (v) => v.toString(16).padStart(2, '0').toUpperCase()).join(' ');
+}
+
+const XFER_LOG_MAX = 160;
+const INPUT_LOG_MAX = 40;
+
 export class IncottDevice extends EventTarget {
   constructor(hid) {
     super();
     this.hid = hid;
     this.clearState();
     this._chain = Promise.resolve();
+    // 原始收发记录（诊断信息用）：不随 clearState 清空，连接失败后仍可导出
+    this._t0 = Date.now();
+    this.xferLog = [];
+    this.inputLog = [];
+    this.modelCode = null; // 143 回包里的型号码；识别失败关闭设备后仍保留，供诊断信息使用
+    this.replies = {}; // 每条读命令第一次的回包（即连接时的 143 / 142 / 137 / 131 …），不会被收发记录挤掉
+    this.inputCount = 0; // 打开设备后收到的输入报告总数
+    this.inputById = {};
+    this.lastInputAt = 0;
+    this.connectedAt = 0;
     this._onInput = (e) => {
       if (e.device !== this.hid) return;
+      this.inputCount++;
+      this.inputById[e.reportId] = (this.inputById[e.reportId] || 0) + 1;
+      this.lastInputAt = Date.now();
+      this._push(this.inputLog, INPUT_LOG_MAX, { t: Date.now() - this._t0, dir: `in#${e.reportId}`, hex: toHex(e.data) });
+      // 官方驱动的读线程只处理 Report ID 9（GamingMouse.exe sub_446200），其它报告不是状态包
+      if (e.reportId !== REPORT_ID) return;
       this.dispatchEvent(new CustomEvent('status', { detail: parseInputReport(e.data) }));
     };
+  }
+
+  _push(list, max, entry) {
+    list.push(entry);
+    if (list.length > max) list.splice(0, list.length - max);
+  }
+
+  _log(dir, data) {
+    this._push(this.xferLog, XFER_LOG_MAX, { t: Date.now() - this._t0, dir, hex: typeof data === 'string' ? data : toHex(data) });
   }
 
   clearState() {
@@ -217,7 +256,6 @@ export class IncottDevice extends EventTarget {
     this.curDpi = -1;
     this.dpiLevels = -1;
     this.curUSBRate = 0;
-    this.curLod = 0;
     this.iswireless = false;
     this.is8KReceiver = false;
     this.isPink = false;
@@ -225,7 +263,6 @@ export class IncottDevice extends EventTarget {
     this.sensor = 0;
     this.devname = '';
     this.curOnBoard = null;
-    this.signal = null;
   }
 
   get isOpen() {
@@ -243,6 +280,7 @@ export class IncottDevice extends EventTarget {
 
   /** 原版 transferDevice：sendFeatureReport，失败重试 3 次 */
   async _sendFeature(b) {
+    this._log('F>', [REPORT_ID, ...b]);
     for (let i = 0; i < 3; i++) {
       try {
         await this.hid.sendFeatureReport(REPORT_ID, b);
@@ -250,6 +288,7 @@ export class IncottDevice extends EventTarget {
       } catch (err) {
         if (i >= 2) {
           console.warn('[hid] sendFeatureReport failed', err);
+          this._log('ERR', `sendFeatureReport: ${err?.message || err}`);
           return false;
         }
         await sleep(100);
@@ -260,11 +299,13 @@ export class IncottDevice extends EventTarget {
 
   /** 原版 elsDevice：sendReport（Output Report） */
   async _sendOutput(b) {
+    this._log('O>', [REPORT_ID, ...b]);
     try {
       await this.hid.sendReport(REPORT_ID, b);
       return true;
     } catch (err) {
       console.warn('[hid] sendReport failed', err);
+      this._log('ERR', `sendReport: ${err?.message || err}`);
       return false;
     }
   }
@@ -276,9 +317,14 @@ export class IncottDevice extends EventTarget {
       r = await this.hid.receiveFeatureReport(REPORT_ID);
     } catch (err) {
       console.warn('[hid] receiveFeatureReport failed', err);
+      this._log('ERR', `receiveFeatureReport: ${err?.message || err}`);
       return null;
     }
     if (!r) return null;
+    this._log('F<', r);
+    // 回显不对也记下来：识别失败时正需要这份原始数据
+    const key = md ?? r.getUint8(1);
+    if (!(key in this.replies)) this.replies[key] = { t: Date.now() - this._t0, hex: toHex(r) };
     if (md !== undefined && md !== r.getUint8(1)) return null;
     return new Uint8Array(r.buffer.slice(r.byteOffset + 1, r.byteOffset + r.byteLength));
   }
@@ -303,6 +349,29 @@ export class IncottDevice extends EventTarget {
     });
   }
 
+  /**
+   * 诊断用：发送任意 8 字节读命令，原样返回回包（含 Report ID，不校验回显）。
+   * 只应传入 0x80–0x8F 的读命令。
+   */
+  rawQuery(bytes) {
+    return this._exclusive(async () => {
+      const b = new Uint8Array(8);
+      b.set(bytes.slice(0, 8));
+      const t = Date.now();
+      if (!(await this._sendFeature(b))) return { sent: b, recv: null, error: 'sendFeatureReport failed', ms: Date.now() - t };
+      await sleep(25);
+      try {
+        const r = await this.hid.receiveFeatureReport(REPORT_ID);
+        if (r) this._log('F<', r);
+        const recv = r ? new Uint8Array(r.buffer, r.byteOffset, r.byteLength).slice() : null;
+        return { sent: b, recv, error: null, ms: Date.now() - t };
+      } catch (err) {
+        this._log('ERR', `receiveFeatureReport: ${err?.message || err}`);
+        return { sent: b, recv: null, error: String(err?.message || err), ms: Date.now() - t };
+      }
+    });
+  }
+
   /* -------------------------------------------------------------- 连接 */
 
   /** 原版 innerE */
@@ -323,9 +392,9 @@ export class IncottDevice extends EventTarget {
     }
     this.online = true;
     await this.readInfo();
-    if (this.iswireless) this.signal = await this.getSl();
     const k = await this.readProfileIndex();
     this.curOnBoard = k == null || k < 0 || k > 3 ? null : k;
+    this.connectedAt = Date.now();
     return true;
   }
 
@@ -345,6 +414,7 @@ export class IncottDevice extends EventTarget {
     const r = await this._fromData(143);
     if (!r || r[1] !== 1) return false;
     this.psd = r[1];
+    this.modelCode = r[2];
     this.devname = modelFromCode(r[2]);
     if (!this.devname) return false;
     if (r[2] === 6) {
@@ -371,20 +441,24 @@ export class IncottDevice extends EventTarget {
     return [r[2], r[1]]; // [当前档位, 档位数]
   }
 
+  /**
+   * 137（0x89）设备信息。原版把它当成和状态包一样的布局（r[0] 电量、r[1] 回报率），但 r[0] 其实是命令回显。
+   * 实际布局以官方桌面驱动为准（GamingMouse.exe sub_4455E0 / sub_4344A0），与实测 G23V2 回包一致：
+   * r[1] 电量  r[2] 充电状态  r[3] 回报率  r[4] 当前 DPI 档  r[7] 固定 0x5A（官方驱动据此判断回包有效）
+   */
   async readInfo() {
     const r = await this._fromData(137);
     if (!r) return false;
     await sleep(100);
     const di = await this.readDif();
     if (di != null && di.length <= 0) return false;
-    this.charging = (r[0] & 128) !== 0;
-    this.power = Math.floor((r[0] & 127) / 10) * 10;
-    // 原版读 r[1]，但实测（G23V2 有线/无线）回报率编码在 r[3]，r[1] 恒不是回报率
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
+    // 充电状态的取值含义未确认，不据此显示充电；电量与状态包一样按 10% 取整。
+    // 实测 G23V2 无线（8K 接收器）时整包除 0x5A 外全为 0，此时电量未知，等待状态包
+    if (r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = Math.floor(r[1] / 10) * 10;
     this.curDpi = di != null ? di[0] : -1;
     this.dpiLevels = di != null ? di[1] : -1;
-    this.curLod = (r[6] & 240) >> 4;
     return true;
   }
 
@@ -408,14 +482,19 @@ export class IncottDevice extends EventTarget {
     return out;
   }
 
-  async getSl() {
-    if (!this.iswireless) return null;
+  /** 133,3（0x85/3）读休眠时间（秒）。原版命名 getSl，并非无线信号：官方桌面驱动读出后原样用 [5,3] 写回 */
+  async readSleepTime() {
     const r = await this._fromData(133, 3);
-    if (!r) return null;
+    if (!r || r[1] !== 3) return null;
     return (r[3] << 8) | r[2];
   }
 
   /* -------------------------------------------------------------- 写入 */
+
+  /** 2000 Hz 以上只有 8K 接收器支持（官方驱动同样只在 8K 接收器下开放），其它连接方式写入时按 1000 Hz */
+  writableRate(rate) {
+    return !this.is8KReceiver && RATE_8K_ONLY.includes(rate) ? 1000 : rate;
+  }
 
   setRte(rate) {
     const val = RATE_HW.indexOf(rate);
@@ -480,13 +559,18 @@ export class IncottDevice extends EventTarget {
     return this._doTask(new Uint8Array([8, mode, 0, 0, 0, 0, 0, 0]));
   }
 
-  /** 宏下发：10 包，每包先发 Feature 头 [7,10,i,32,bID]，80ms 后发 32 字节 Output */
+  /**
+   * 宏下发：10 包，每包先发 Feature 头 [7,10,i,32,bID]，80ms 后发 32 字节 Output。
+   * 每包的头与数据放在同一个互斥段里，避免期间插入其它读写（例如板载序号确认）打乱固件的收包顺序。
+   */
   async setJuJi(bID, data) {
     const count = 10;
     for (let i = 0; i < count; i++) {
-      if (!(await this._doTask(new Uint8Array([7, count, i, 32, bID, 0, 0, 0])))) return false;
-      await sleep(80);
-      const ok = await this._exclusive(() => this._sendOutput(new Uint8Array(data.slice(i * 32, i * 32 + 32))));
+      const ok = await this._exclusive(async () => {
+        if (!(await this._sendFeature(new Uint8Array([7, count, i, 32, bID, 0, 0, 0])))) return false;
+        await sleep(80);
+        return this._sendOutput(new Uint8Array(data.slice(i * 32, i * 32 + 32)));
+      });
       if (!ok) return false;
     }
     return true;
@@ -556,20 +640,23 @@ export class IncottDevice extends EventTarget {
     if (flag & apDpiLevel) {
       const levels = pf.dpi.length;
       let cur = pf.curDpi;
-      if (cur >= levels) cur = 1;
-      if (levels < 0 || cur < 0 || cur >= levels) return false;
+      // 原版这里取 1，只有 1 档时必然越界，导致整个写入中断（后面的回报率、LOD 等都写不进去）
+      if (cur >= levels) cur = levels - 1;
+      if (levels <= 0 || cur < 0) return false;
       await sleep(waitT);
       if (!(await this.setDif(cur, levels))) return false;
     }
     progress((pg += 5));
 
+    // 配置里可能是在 8K 接收器下保存的 2000+ Hz，换成有线 / 1K 接收器时不能原样写入
+    const rate = this.writableRate(pf.usbrate);
     if (flag & apRate) {
       await sleep(waitT);
-      if (!(await this.setRte(pf.usbrate))) return false;
+      if (!(await this.setRte(rate))) return false;
     }
     progress((pg += 5));
 
-    if (flag & apSensorMode && pf.usbrate < 2000) {
+    if (flag & apSensorMode && rate < 2000) {
       await sleep(waitT);
       if (!(await this.setSM(pf.sensormode))) return false;
     }

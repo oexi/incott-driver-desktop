@@ -6,6 +6,7 @@ import {
   state,
   curProfile,
   sensorCfg,
+  effectiveRate,
   selectDpi,
   setDpiValue,
   addDpiLevel,
@@ -96,7 +97,7 @@ function preset(v) {
 
 /* 回报率 */
 const rates = computed(() => C.RATE_UI.filter((r) => state.info.is8K || !C.RATE_8K_ONLY.includes(r)));
-const highRate = computed(() => (pf.value?.usbrate || 0) >= 2000);
+const highRate = computed(() => effectiveRate.value >= 2000);
 
 /* 传感器模式 */
 const modeIcons = [Leaf, Scale, Rocket];
@@ -196,7 +197,7 @@ function fmtRate(r) {
           </div>
         </div>
         <div class="rates">
-          <button v-for="r in rates" :key="r" class="rate" :class="{ on: pf.usbrate === r, hot: r >= 4000 }" @click="setRate(r)">
+          <button v-for="r in rates" :key="r" class="rate" :class="{ on: effectiveRate === r, hot: r >= 4000 }" @click="setRate(r)">
             <span class="rv num">{{ fmtRate(r) }}</span>
             <span class="ru">Hz</span>
           </button>

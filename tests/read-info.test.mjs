@@ -40,3 +40,24 @@ test('有线：r[1] 为电量时仍取 r[3]', async () => {
   assert.equal(await readRate([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 125);
   assert.equal(await readRate([0x89, 0x61, 0x02, 0, 0x02, 0, 0, 0x5a]), 1000);
 });
+
+// 电量：官方桌面驱动按 r[1] 读取，并要求 r[7] 为 0x5A（GamingMouse.exe sub_4455E0）
+async function readPower(info) {
+  const dev = new IncottDevice(fakeHid(info));
+  assert.equal(await dev.readInfo(), true);
+  return dev.power;
+}
+
+test('电量取自 r[1]（实测 G23V2 有线回包：0x61 = 97%）', async () => {
+  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 90);
+  assert.equal(await readPower([0x89, 100, 0, 0, 0, 0, 0, 0x5a]), 100);
+});
+
+test('没有 0x5A 标记或电量越界时不采用', async () => {
+  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0]), -1);
+  assert.equal(await readPower([0x89, 0xc8, 0x02, 3, 0x02, 0, 0, 0x5a]), -1);
+});
+
+test('实测 G23V2 无线（8K 接收器）回包除 0x5A 外全为 0：电量未知，不显示 0%', async () => {
+  assert.equal(await readPower([0x89, 0, 0, 0, 0, 0, 0, 0x5a]), -1);
+});

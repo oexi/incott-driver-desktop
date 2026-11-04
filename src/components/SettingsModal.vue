@@ -1,7 +1,8 @@
 <script setup>
 import { ref, watch } from 'vue';
-import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse } from 'lucide-vue-next';
+import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle } from 'lucide-vue-next';
 import { state, settings, saveSettings, isDesktop } from '../store.js';
+import { copyDiagnostics } from '../diagnostics.js';
 import { t } from '../i18n.js';
 import { SHELLS, shellOf, modelDir } from '../assets.js';
 import AppLogo from './AppLogo.vue';
@@ -102,6 +103,20 @@ function setShell(shell) {
             </div>
           </template>
 
+          <div class="group-title">{{ t.diagTitle }}</div>
+          <div class="setting-row">
+            <ClipboardCopy :size="18" class="ic" />
+            <div class="txt">
+              <div class="name">{{ t.diagCopy }}</div>
+              <div class="desc">{{ t.diagDesc }}</div>
+            </div>
+            <button class="btn sm diag-btn" :disabled="state.diagRunning" @click="copyDiagnostics">
+              <LoaderCircle v-if="state.diagRunning" :size="14" class="spin" />
+              <ClipboardCopy v-else :size="14" />
+              {{ state.diagRunning ? t.diagRunning : t.diagCopyBtn }}
+            </button>
+          </div>
+
           <div class="group-title">{{ t.about }}</div>
           <div class="about">
             <AppLogo :size="40" />
@@ -186,6 +201,18 @@ h2 {
 .sw.on {
   outline-color: var(--text);
   border-color: var(--surface);
+}
+.diag-btn {
+  flex-shrink: 0;
+  gap: 6px;
+}
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 .about {
   display: flex;

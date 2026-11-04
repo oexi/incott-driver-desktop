@@ -40,12 +40,15 @@ function linuxHidrawStatus(vendorId) {
     } catch {
       access = false;
     }
-    devices.push({ node: `/dev/${name}`, productId: parseInt(id[3], 16), access });
+    const hidName = /HID_NAME=(.*)/.exec(uevent);
+    devices.push({ node: `/dev/${name}`, productId: parseInt(id[3], 16), access, name: hidName ? hidName[1].trim() : '' });
   }
   return {
     platform: 'linux',
     devices,
     rulesInstalled: fs.existsSync(RULES_PATH),
+    // 安装包（deb / rpm / pacman）放在这里
+    rulesSystem: fs.existsSync('/usr/lib/udev/rules.d/70-incott-mouse.rules'),
     needsFix: devices.length > 0 && devices.some((d) => !d.access),
   };
 }
