@@ -103,7 +103,8 @@ export const effectiveRate = computed(() => {
 // 不进入响应式系统：供「复制诊断信息」读取
 export const diag = markRaw({
   running: false,
-  lastFailure: null, // { time, productId, productName, error, modelCode, replies, inputCount, inputById, xferLog, inputLog }
+  connecting: null, // 正在连接的 { dev, since }：连接卡住时诊断信息靠它导出现场
+  lastFailure: null, // { time, productId, productName, error, modelCode, linkOnline, replies, inputCount, inputById, xferLog, inputLog, errLog }
 });
 
 /* ---------------------------------------------------------- 提示与对话框 */
@@ -204,10 +205,12 @@ async function processQueue() {
         });
       } catch (err) {
         console.error('[apply]', err);
+        dev.applyError = `exception: ${err?.message || err}`;
         ok = false;
       }
       state.applying = false;
-      logEvent(`apply ${flagNames(job.flag)} index=${job.index} profile=${state.curIndex + 1} → ${ok ? 'ok' : 'FAILED'} ${Date.now() - started}ms`);
+      const why = ok ? 'ok' : `FAILED at ${dev.applyError || '?'}`;
+      logEvent(`apply ${flagNames(job.flag)} index=${job.index} profile=${state.curIndex + 1} → ${why} ${Date.now() - started}ms`);
     } else {
       logEvent(`apply ${flagNames(job.flag)} skipped (no device/profile)`);
     }
@@ -300,29 +303,34 @@ async function connectTo(hid) {
   state.error = null;
   const dev = markRaw(new IncottDevice(hid));
   logEvent(`connect start ${hid.productId?.toString(16)} "${hid.productName || ''}" opened=${hid.opened}`);
+  diag.connecting = { dev, since: Date.now() };
   try {
     await dev.open();
   } catch (err) {
     console.warn('[connect]', err);
-    logEvent(`connect FAILED: ${err?.message || err} (modelCode=${dev.modelCode})`);
+    logEvent(`connect FAILED: ${err?.message || err} (modelCode=${dev.modelCode}${dev.lastHidError ? `, last HID error: ${dev.lastHidError}` : ''})`);
     diag.lastFailure = {
       time: new Date().toISOString(),
       productId: hid.productId,
       productName: hid.productName || '',
       error: String(err?.message || err),
       modelCode: dev.modelCode,
+      linkOnline: dev.linkOnline,
       replies: { ...dev.replies },
       inputCount: dev.inputCount,
       inputById: { ...dev.inputById },
       xferLog: dev.xferLog.slice(),
       inputLog: dev.inputLog.slice(),
+      errLog: dev.errLog.slice(),
     };
     state.phase = 'welcome';
     const msg = String(err && err.message);
     let message = t.value.unsupportedDevice;
     if (msg === 'READ_FAILED') message = t.value.readFailed;
+    else if (msg === 'NO_RESPONSE') message = t.value.noResponse;
     else if (/open/i.test(msg)) message = t.value.deviceBusy;
     state.error = { title: t.value.connectFailed, message };
+    diag.connecting = null;
     await checkLinuxPermission();
     return;
   }
@@ -339,6 +347,7 @@ async function connectTo(hid) {
   logEvent(
     `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard}`
   );
+  diag.connecting = null;
   enterDevice(dev, keyMap);
 }
 

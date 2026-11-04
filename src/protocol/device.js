@@ -209,6 +209,23 @@ export function toHex(data) {
 
 const XFER_LOG_MAX = 160;
 const INPUT_LOG_MAX = 40;
+const ERR_LOG_MAX = 30;
+
+/**
+ * 单次 HID 调用的超时。正常往返只要几毫秒；接收器或固件不响应时 WebHID 可能很久都不返回，
+ * 以前界面会一直停在"连接中 / 写入中"，连诊断信息都复制不了。
+ */
+export const HID_TIMEOUT = 3000;
+const OPEN_TIMEOUT = 5000;
+
+/** 超时后原调用仍挂在后台，但调用方会拿到错误，不再卡住 */
+export function withTimeout(p, ms, what = 'hid') {
+  let timer;
+  const limit = new Promise((_, rej) => (timer = setTimeout(() => rej(new Error(`${what} timeout ${ms}ms`)), ms)));
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
+}
+
+const isTimeout = (err) => /timeout/i.test(String(err?.message || err));
 
 export class IncottDevice extends EventTarget {
   constructor(hid) {
@@ -226,6 +243,11 @@ export class IncottDevice extends EventTarget {
     this.inputById = {};
     this.lastInputAt = 0;
     this.connectedAt = 0;
+    this.errLog = []; // HID 错误 / 超时单独保留，不会被大量正常收发挤掉
+    this.lastHidError = null;
+    this.applyError = null; // 最近一次 apply 失败在哪一步
+    this.linkOnline = null; // 142（8E 01）回包 r[6]：接收器报告的鼠标在线标志（原版读了但被覆盖，含义待实机确认）
+    this._macroPacket = 0;
     this._onInput = (e) => {
       if (e.device !== this.hid) return;
       this.inputCount++;
@@ -245,6 +267,13 @@ export class IncottDevice extends EventTarget {
 
   _log(dir, data) {
     this._push(this.xferLog, XFER_LOG_MAX, { t: Date.now() - this._t0, dir, hex: typeof data === 'string' ? data : toHex(data) });
+  }
+
+  _hidError(what, err) {
+    const msg = `${what}: ${err?.message || err}`;
+    this.lastHidError = msg;
+    this._log('ERR', msg);
+    this._push(this.errLog, ERR_LOG_MAX, { t: Date.now() - this._t0, dir: 'ERR', hex: msg });
   }
 
   clearState() {
@@ -283,12 +312,13 @@ export class IncottDevice extends EventTarget {
     this._log('F>', [REPORT_ID, ...b]);
     for (let i = 0; i < 3; i++) {
       try {
-        await this.hid.sendFeatureReport(REPORT_ID, b);
+        await withTimeout(this.hid.sendFeatureReport(REPORT_ID, b), HID_TIMEOUT, 'sendFeatureReport');
         return true;
       } catch (err) {
-        if (i >= 2) {
+        // 超时不再重试：上一次调用还挂着，再发只会继续排队
+        if (i >= 2 || isTimeout(err)) {
           console.warn('[hid] sendFeatureReport failed', err);
-          this._log('ERR', `sendFeatureReport: ${err?.message || err}`);
+          this._hidError(`sendFeatureReport ${toHex([b[0], b[1]])}${i ? ` (try ${i + 1})` : ''}`, err);
           return false;
         }
         await sleep(100);
@@ -301,11 +331,11 @@ export class IncottDevice extends EventTarget {
   async _sendOutput(b) {
     this._log('O>', [REPORT_ID, ...b]);
     try {
-      await this.hid.sendReport(REPORT_ID, b);
+      await withTimeout(this.hid.sendReport(REPORT_ID, b), HID_TIMEOUT, 'sendReport');
       return true;
     } catch (err) {
       console.warn('[hid] sendReport failed', err);
-      this._log('ERR', `sendReport: ${err?.message || err}`);
+      this._hidError('sendReport', err);
       return false;
     }
   }
@@ -314,10 +344,10 @@ export class IncottDevice extends EventTarget {
   async _readData(md) {
     let r;
     try {
-      r = await this.hid.receiveFeatureReport(REPORT_ID);
+      r = await withTimeout(this.hid.receiveFeatureReport(REPORT_ID), HID_TIMEOUT, 'receiveFeatureReport');
     } catch (err) {
       console.warn('[hid] receiveFeatureReport failed', err);
-      this._log('ERR', `receiveFeatureReport: ${err?.message || err}`);
+      this._hidError(`receiveFeatureReport${md != null ? ` (cmd ${md})` : ''}`, err);
       return null;
     }
     if (!r) return null;
@@ -361,12 +391,12 @@ export class IncottDevice extends EventTarget {
       if (!(await this._sendFeature(b))) return { sent: b, recv: null, error: 'sendFeatureReport failed', ms: Date.now() - t };
       await sleep(25);
       try {
-        const r = await this.hid.receiveFeatureReport(REPORT_ID);
+        const r = await withTimeout(this.hid.receiveFeatureReport(REPORT_ID), HID_TIMEOUT, 'receiveFeatureReport');
         if (r) this._log('F<', r);
         const recv = r ? new Uint8Array(r.buffer, r.byteOffset, r.byteLength).slice() : null;
         return { sent: b, recv, error: null, ms: Date.now() - t };
       } catch (err) {
-        this._log('ERR', `receiveFeatureReport: ${err?.message || err}`);
+        this._hidError(`receiveFeatureReport (diag ${toHex([b[0], b[1]])})`, err);
         return { sent: b, recv: null, error: String(err?.message || err), ms: Date.now() - t };
       }
     });
@@ -376,7 +406,7 @@ export class IncottDevice extends EventTarget {
 
   /** 原版 innerE */
   async open() {
-    if (!this.hid.opened) await this.hid.open();
+    if (!this.hid.opened) await withTimeout(this.hid.open(), OPEN_TIMEOUT, 'open');
     this.opened = true;
     this.curpid = this.hid.productId;
     this.iswireless = this.hid.productId === PID_WIRELESS;
@@ -384,7 +414,8 @@ export class IncottDevice extends EventTarget {
 
     if (!(await this.readDps()) || this.devname === '') {
       await this.close();
-      throw new Error('UNSUPPORTED_DEVICE');
+      // 143 一个回包都没收到是"没有响应"（接收器 / 鼠标无响应、读写超时），收到了但不认识才是"不支持"
+      throw new Error(this.replies[143] ? 'UNSUPPORTED_DEVICE' : 'NO_RESPONSE');
     }
     if (!(await this.readMatchInfo())) {
       await this.close();
@@ -412,9 +443,11 @@ export class IncottDevice extends EventTarget {
 
   async readDps() {
     const r = await this._fromData(143);
-    if (!r || r[1] !== 1) return false;
+    if (!r) return false;
+    // 先记下型号码：psd 不对时诊断信息里也需要它
     this.psd = r[1];
     this.modelCode = r[2];
+    if (r[1] !== 1) return false;
     this.devname = modelFromCode(r[2]);
     if (!this.devname) return false;
     if (r[2] === 6) {
@@ -432,6 +465,8 @@ export class IncottDevice extends EventTarget {
     const r = await this._fromData(142, 1);
     if (!r) return false;
     this.online = r[6] === 1;
+    // 原版随后无条件把 online 设为 true；这里另存原值，诊断时用来判断"接收器在、鼠标不在线"（例如配对丢失）
+    this.linkOnline = r[6];
     return true;
   }
 
@@ -566,6 +601,7 @@ export class IncottDevice extends EventTarget {
   async setJuJi(bID, data) {
     const count = 10;
     for (let i = 0; i < count; i++) {
+      this._macroPacket = i;
       const ok = await this._exclusive(async () => {
         if (!(await this._sendFeature(new Uint8Array([7, count, i, 32, bID, 0, 0, 0])))) return false;
         await sleep(80);
@@ -586,7 +622,14 @@ export class IncottDevice extends EventTarget {
    * @param ctx      { macros: STMacroList, profileIndex: number, onProgress?: (pct)=>void }
    */
   async apply(pf, flag, index, ctx) {
-    if (!this.isOpen || !pf) return false;
+    // 记下失败在哪一步（诊断用）：原版只返回 false，看不出是哪条命令、因为什么失败
+    this.applyError = null;
+    this.lastHidError = null;
+    const fail = (step) => {
+      this.applyError = this.lastHidError ? `${step} — ${this.lastHidError}` : step;
+      return false;
+    };
+    if (!this.isOpen || !pf) return fail('device not open');
     const waitT = 200;
     const progress = (v) => ctx.onProgress && ctx.onProgress(Math.min(100, v));
     let pg = 0;
@@ -607,19 +650,19 @@ export class IncottDevice extends EventTarget {
           if (lp > 3) lp = 3;
           if (ir > 255) ir = 255;
           await sleep(waitT);
-          if (!(await this.setFKeyPm(lp, ir))) return false;
+          if (!(await this.setFKeyPm(lp, ir))) return fail(`key ${i + 1}: fire key params`);
         } else if (k.major === fJuji) {
           const t = ctx.macros.find(k.itemdata);
           const b = macroToHw(t, i);
-          if (!b) return false;
+          if (!b) return fail(`key ${i + 1}: macro encode`);
           await sleep(waitT);
-          if (!(await this.setJuJi(i, b))) return false;
+          if (!(await this.setJuJi(i, b))) return fail(`key ${i + 1}: macro packet ${this._macroPacket + 1}/10`);
         }
         const pos = dvar.key[i].matrix;
         const code = keyToHw(k, i);
         if (code !== -1) {
           await sleep(waitT);
-          if (!(await this.setMsK(pos, code))) return false;
+          if (!(await this.setMsK(pos, code))) return fail(`key ${i + 1}: code 0x${(code >>> 0).toString(16)} → matrix ${pos}`);
         }
       }
     }
@@ -632,7 +675,7 @@ export class IncottDevice extends EventTarget {
         const dy = getHwForDpi(pf.dpiy[i], this.sensor);
         if (dx !== -1 && dy !== -1) {
           await sleep(waitT);
-          if (!(await this.setResolution(i, dx, dy))) return false;
+          if (!(await this.setResolution(i, dx, dy))) return fail(`dpi #${i + 1} ${pf.dpi[i]}/${pf.dpiy[i]}`);
         }
       }
     }
@@ -642,9 +685,9 @@ export class IncottDevice extends EventTarget {
       let cur = pf.curDpi;
       // 原版这里取 1，只有 1 档时必然越界，导致整个写入中断（后面的回报率、LOD 等都写不进去）
       if (cur >= levels) cur = levels - 1;
-      if (levels <= 0 || cur < 0) return false;
+      if (levels <= 0 || cur < 0) return fail(`dpi level: invalid current ${cur} / ${levels} stages`);
       await sleep(waitT);
-      if (!(await this.setDif(cur, levels))) return false;
+      if (!(await this.setDif(cur, levels))) return fail(`dpi level ${cur + 1}/${levels}`);
     }
     progress((pg += 5));
 
@@ -652,50 +695,50 @@ export class IncottDevice extends EventTarget {
     const rate = this.writableRate(pf.usbrate);
     if (flag & apRate) {
       await sleep(waitT);
-      if (!(await this.setRte(rate))) return false;
+      if (!(await this.setRte(rate))) return fail(`rate ${rate}`);
     }
     progress((pg += 5));
 
     if (flag & apSensorMode && rate < 2000) {
       await sleep(waitT);
-      if (!(await this.setSM(pf.sensormode))) return false;
+      if (!(await this.setSM(pf.sensormode))) return fail(`sensor mode ${pf.sensormode}`);
     }
     progress((pg += 5));
 
     if (flag & apLod) {
       // 与原版不同：原版 3395 分支映射错误，这里以官方桌面驱动为准（见 lodToHw）
       await sleep(waitT);
-      if (!(await this.setLD(lodToHw(pf.lod, this.sensor)))) return false;
+      if (!(await this.setLD(lodToHw(pf.lod, this.sensor)))) return fail(`LOD ${pf.lod}`);
     }
     progress((pg += 5));
 
     if (flag & apSensor) {
       if (index & 1) {
         await sleep(waitT);
-        if (!(await this.setRi(pf.ripple))) return false;
+        if (!(await this.setRi(pf.ripple))) return fail('ripple');
       }
       if (index & 2) {
         await sleep(waitT);
-        if (!(await this.setFix(pf.fixline))) return false;
+        if (!(await this.setFix(pf.fixline))) return fail('angle snap');
       }
       if (index & 4) {
         await sleep(waitT);
-        if (!(await this.setMt(pf.motion))) return false;
+        if (!(await this.setMt(pf.motion))) return fail('motion sync');
       }
     }
     if (flag & apReceiverLED && this.is8KReceiver) {
       await sleep(waitT);
-      if (!(await this.setReceiverLED(pf.receiverLED))) return false;
+      if (!(await this.setReceiverLED(pf.receiverLED))) return fail('receiver LED');
     }
     progress((pg += 5));
 
     if (flag & apDebounce) {
       await sleep(waitT);
-      if (!(await this.setDce(pf.debounce))) return false;
+      if (!(await this.setDce(pf.debounce))) return fail(`debounce ${pf.debounce}`);
     }
     if (flag & apSleepTime) {
       await sleep(waitT);
-      if (!(await this.setSep(pf.sleeptime))) return false;
+      if (!(await this.setSep(pf.sleeptime))) return fail(`sleep time ${pf.sleeptime}`);
     }
     pg += 5;
     progress(pg);

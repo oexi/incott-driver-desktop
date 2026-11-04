@@ -69,8 +69,8 @@ function copyRules() {
           <p class="st-desc">{{ state.error ? state.error.message : t.noDeviceHint }}</p>
           <div class="row">
             <button class="btn primary lg" @click="userConnect()"><Plug :size="18" />{{ t.connect }}</button>
-            <!-- 连接失败（如型号不受支持）时最需要原始数据 -->
-            <button v-if="state.error" class="btn ghost" :disabled="state.diagRunning" @click="copyDiagnostics">
+            <!-- 连接失败（如型号不受支持）或找不到设备时最需要原始数据 -->
+            <button v-if="state.error || !state.scanning" class="btn ghost" :disabled="state.diagRunning" @click="copyDiagnostics">
               <LoaderCircle v-if="state.diagRunning" :size="15" class="spin" />
               <ClipboardCopy v-else :size="15" />
               {{ state.diagRunning ? t.diagRunning : t.diagCopy }}
