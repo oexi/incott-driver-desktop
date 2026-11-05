@@ -517,6 +517,60 @@ export class IncottDevice extends EventTarget {
     return out;
   }
 
+  /** 带子序号的读命令（0x82 / 0x84 / 0x85 …）：回包 r[1] 必须回显子序号 */
+  async _readSub(cmd, sub) {
+    const r = await this._fromData(cmd, sub);
+    return r && r[1] === sub ? r : null;
+  }
+
+  /** 读取失败时重试：实测 G23V2 刚换完槽位时最初几次读取会失败 */
+  async _retry(fn, tries = 3) {
+    for (let i = 0; i < tries; i++) {
+      const r = await fn();
+      if (r != null) return r;
+      if (i < tries - 1) await sleep(60);
+    }
+    return null;
+  }
+
+  /**
+   * 读出鼠标当前板载配置（槽位）里的全部设置，读不到的项为 null。
+   * 实测 G23V2：回报率、DPI 数值 / 档位数 / 当前档、LOD、传感器开关、传感器模式、消抖、休眠每个槽位各一份，
+   * 按键与接收器灯效 4 个槽位共用。读命令与官方桌面驱动一致（GamingMouse.exe sub_4447C0 / sub_445B50 / sub_444900 …）。
+   * @param dpiCount 读取前几档 DPI 数值
+   * @param quick    只读用于区分槽位的几项（回报率、DPI、LOD、消抖、休眠），约 0.4 秒
+   */
+  async readSlot(dpiCount = 6, { quick = false } = {}) {
+    const out = { rate: null, levels: null, cur: null, dpi: [], lod: null, ripple: null, fixline: null, motion: null };
+    Object.assign(out, { sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null });
+    const read = (cmd) => this._retry(() => this._fromData(cmd));
+    const readSub = (cmd, sub) => this._retry(() => this._readSub(cmd, sub));
+    let r = await read(0x81);
+    if (r && (r[1] & 15) <= 6) out.rate = RATE_HW[r[1] & 15];
+    r = await read(0x83);
+    if (r) [out.levels, out.cur] = [r[1], r[2]];
+    for (let i = 0; i < dpiCount; i++) {
+      r = await readSub(0x82, i);
+      out.dpi.push(r ? r[2] | (r[3] << 8) : null);
+    }
+    const sensorKeys = quick ? ['lod'] : ['lod', 'ripple', 'fixline', 'motion', 'sensormode'];
+    for (let i = 0; i < sensorKeys.length; i++) {
+      r = await readSub(0x84, i + 1);
+      if (r) out[sensorKeys[i]] = r[2];
+    }
+    r = await readSub(0x85, 1);
+    if (r) out.debounce = r[2];
+    r = await readSub(0x85, 3);
+    if (r) out.sleeptime = (r[3] << 8) | r[2];
+    if (quick) return out;
+    r = await readSub(0x85, 2);
+    if (r) out.fire = [r[2], r[3]];
+    for (let i = 0; i < dvar.key.length; i++) out.keys.push(await this._retry(() => this.readKEY(dvar.key[i].matrix)));
+    r = await read(0x88);
+    if (r) out.receiverLED = r[1];
+    return out;
+  }
+
   /** 133,3（0x85/3）读休眠时间（秒）。原版命名 getSl，并非无线信号：官方桌面驱动读出后原样用 [5,3] 写回 */
   async readSleepTime() {
     const r = await this._fromData(133, 3);

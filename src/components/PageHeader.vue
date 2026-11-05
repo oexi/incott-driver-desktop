@@ -1,8 +1,9 @@
 <script setup>
 import { computed } from 'vue';
 import { FileDown, FileUp, LoaderCircle, CircleCheck } from 'lucide-vue-next';
-import { state, switchProfile, importProfile, exportProfile } from '../store.js';
+import { state, requestProfile, importProfile, exportProfile } from '../store.js';
 import { t } from '../i18n.js';
+import ProfileOverview from './ProfileOverview.vue';
 
 const titles = computed(() => ({
   buttons: [t.value.buttonsTitle, t.value.buttonsSub],
@@ -14,7 +15,7 @@ const head = computed(() => titles.value[state.page] || ['', '']);
 
 function onProfile(i) {
   if (i === state.curIndex || state.pending) return;
-  switchProfile(i);
+  requestProfile(i);
 }
 </script>
 
@@ -39,6 +40,7 @@ function onProfile(i) {
           {{ i }}
         </button>
       </div>
+      <ProfileOverview />
       <button class="btn icon" :title="t.importProfile" @click="importProfile()"><FileUp :size="16" /></button>
       <button class="btn icon" :title="t.exportProfile" @click="exportProfile()"><FileDown :size="16" /></button>
     </div>

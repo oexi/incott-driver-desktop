@@ -132,7 +132,7 @@ test('删除宏：4 个配置里绑定它的按键恢复默认，并重写当前
   }
 });
 
-test('切换配置：遗留的失效宏绑定先恢复默认，整个配置照常写完', async () => {
+test('完整写入配置：遗留的失效宏绑定先恢复默认，整个配置照常写完', async () => {
   setupStore();
   const pl = store.state.profiles.list;
   pl[1].key[3] = macroKey(GONE);
@@ -140,7 +140,8 @@ test('切换配置：遗留的失效宏绑定先恢复默认，整个配置照�
   const log = [];
   store.state.device = markRaw(makeDevice(log));
   try {
-    assert.equal(await store.switchProfile(1), true);
+    store.state.curIndex = 1;
+    assert.equal(await store.writeCurrentProfile(), true);
     assert.deepEqual(pl[1].key[3], C.dvar.key[3]);
     assert.deepEqual(log.at(-1).slice(2, 5), [6, 9, 1]);
   } finally {

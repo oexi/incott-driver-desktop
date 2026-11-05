@@ -538,7 +538,7 @@ export async function collectDiagnostics({ busy = null, sysHid = null } = {}) {
             `connected      ${ago(dev.connectedAt)} · last input ${ago(dev.lastInputAt)}`,
             `parsed         ${dev.devname} sensor=0x${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} pink=${dev.isPink}`,
             `at connect     rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard}`,
-            `ui now         power=${state.info.power} charging=${state.info.charging} rate=${state.info.rate} profile=${state.curIndex + 1} firstRun=${state.firstRun} pending=${state.pending} applying=${state.applying}`,
+            `ui now         power=${state.info.power} charging=${state.info.charging} rate=${state.info.rate} profile=${state.curIndex + 1} slot=${state.slot == null ? '?' : state.slot + 1} firstRun=${state.firstRun} pending=${state.pending} applying=${state.applying}`,
             ...(dev.applyError ? [`last apply err ${dev.applyError}`] : []),
           ],
         })
