@@ -209,7 +209,6 @@ async function processQueue() {
       if (job.flag & C.apKey) {
         const fixed = dropMissingMacros(curProfile.value, job.index);
         if (fixed.length) {
-          syncShared();
           persist();
           toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
         }
@@ -392,7 +391,8 @@ let statusSeen = false;
 
 /* ------------------------------------------------------------- 配置槽位 */
 
-// 实测 G23V2：鼠标里有 4 个硬件槽位，各存一份回报率 / DPI / 传感器 / 消抖 / 休眠，按键与接收器灯效 4 个槽位共用。
+// 实测 G23V2：鼠标里有 4 个硬件槽位，各存回报率 / DPI / 传感器 / 消抖 / 休眠；按键与接收器灯效由固件共用，
+// 但软件里仍按原版每个配置各记一份（写入时按键 / 灯效会同时影响 4 个硬件槽位）。
 // 硬件槽位只能用鼠标上的「配置切换」键切换（鼠标没有由软件换槽位的命令，原版的 [6,9,序号] 只是记一个编号），
 // 状态包第 3 字节高 2 位报告当前硬件槽位；软件的任何写入都只进入当前硬件槽位。
 // 与官方网页驱动相同，板载配置 N 对应硬件槽位 N：
@@ -459,16 +459,6 @@ function markWritten() {
   saveSlotState();
 }
 
-/** 按键与接收器灯效在鼠标里是 4 个槽位共用的：4 个配置槽位保持一致 */
-function syncShared(from = curProfile.value) {
-  if (!from) return;
-  for (const pf of state.profiles.list) {
-    if (pf === from) continue;
-    pf.key = from.key.map((k) => k.copy());
-    pf.receiverLED = from.receiverLED;
-  }
-}
-
 /** 比对配置与硬件槽位的实际内容，返回需要写入的 [flag, index]；读不到的项按需要写入处理 */
 export function slotDiff(pf, raw, dev) {
   const neq = (a, b) => a == null || a !== b;
@@ -512,7 +502,7 @@ export function slotDiff(pf, raw, dev) {
   return jobs;
 }
 
-/** 首次使用：用硬件槽位里的实际设置初始化配置槽位（按键与接收器灯效是共用的，不在这里处理） */
+/** 首次使用：用硬件槽位里的实际设置初始化配置槽位（按键与接收器灯效由固件共用，不在这里处理） */
 function adoptSlot(pf, raw, dev) {
   const st = C.getStDPI(dev.sensor);
   if (raw.rate) pf.usbrate = raw.rate;
@@ -608,10 +598,7 @@ async function loadIntoSlot(dev, p, head, { aligned = false, settle = false } = 
   // 当前 DPI 档以鼠标为准（鼠标上的 DPI 键随时会改它）
   if (aligned && raw.cur != null) setCurDpi(raw.cur);
   const fixed = dropMissingMacros(pf);
-  if (fixed.length) {
-    syncShared(pf);
-    toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
-  }
+  if (fixed.length) toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
   const jobs = slotDiff(pf, raw, dev);
   let ok = true;
   let stopped = false;
@@ -742,7 +729,6 @@ function enterDevice(dev, keyMap, quick = null) {
       pf.dpicolor = st.dpicolor.slice(0, lv);
     }
   }
-  syncShared(list.list[idx]);
   setCurDpi(dev.curDpi);
   statusSeen = false;
   persist();
@@ -884,7 +870,6 @@ export async function importProfile(text) {
   p.inside = true;
   state.profiles.list[state.curIndex] = p;
   state.firstRun = false;
-  syncShared(p);
   const ok = await writeCurrentProfile();
   if (ok) toast(t.value.importOk, 'success');
 }
@@ -913,8 +898,20 @@ export async function assignKey(btn, kf) {
 
 /** 原版 onButtonSet */
 function setButton(btn, kf) {
-  // 按键在鼠标里是 4 个板载配置共用的（实测 G23V2），同步到全部 4 个配置
-  for (const pf of state.profiles.list) pf.key[btn] = kf.copy();
+  const pf = curProfile.value;
+  const list = state.profiles.list;
+  if (kf.major === C.fMouse && kf.minor === C.favProfile) {
+    // "配置切换"键同步到全部 4 个板载配置（原版 onButtonSet：只有这一个键会同步）
+    for (let i = 0; i < C.MAX_ONBOARD; i++) if (list[i]) list[i].key[btn] = kf.copy();
+  } else if (pf.key[btn].major === C.fMouse && pf.key[btn].minor === C.favProfile) {
+    // 取消"配置切换"键时，其它配置的该键恢复默认
+    // （原版的跳过条件误写成 i==按键序号，会让某个配置残留切换键，这里按本意修正）
+    for (let i = 0; i < C.MAX_ONBOARD; i++) {
+      if (i === state.curIndex || !list[i]) continue;
+      list[i].key[btn] = C.dvar.key[btn].copy();
+    }
+  }
+  pf.key[btn] = kf.copy();
   return chunk86(C.apKey, btn, { overlay: kf.major === C.fJuji });
 }
 
@@ -925,7 +922,6 @@ export function swapLeftRight() {
   const k = pf.key[0].copy();
   pf.key[0] = pf.key[1].copy();
   pf.key[1] = k;
-  syncShared(pf);
   chunk86(C.apKey, 0);
   chunk86(C.apKey, 1);
 }
@@ -1084,8 +1080,8 @@ export function setSleepTime(sec) {
 export function setReceiverLED(mode) {
   const pf = curProfile.value;
   if (!pf) return;
-  // 接收器灯效在鼠标里是 4 个板载配置共用的
-  for (const p of state.profiles.list) p.receiverLED = mode;
+  // 原版 receiverLEDClick：只改当前配置（配置文件里每个配置各记一份）
+  pf.receiverLED = mode;
   chunk86(C.apReceiverLED, 0);
 }
 
@@ -1104,7 +1100,6 @@ export async function factoryReset() {
   state.xySplit = false;
   logEvent(`factory reset profile ${state.curIndex + 1}`);
   pf.reset(C.dvar, state.info.sensor);
-  syncShared(pf);
   markWritten();
   return chunk86(C.apALL | C.apReset, 255, { overlay: true });
 }
@@ -1156,7 +1151,7 @@ export async function updateMacro(uid, data) {
   m.cycle = data.cycle;
   m.item = data.item;
   saveMacros(state.macros);
-  // 按键在鼠标里是 4 个槽位共用的：当前配置里用到这个宏的按键就是鼠标里的
+  // 按键写进鼠标后 4 个硬件槽位都生效（固件共用）：只重写当前配置里用到这个宏的按键
   const used = macroButtons(curProfile.value, uid);
   if (used.length && state.device) {
     toast(t.value.macroResync, 'info');

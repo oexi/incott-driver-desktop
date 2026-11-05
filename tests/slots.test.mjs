@@ -207,29 +207,41 @@ test('鼠标的回报率在软件外真的变了（不是降级）时，配置�
   await store.disconnect('test');
 });
 
-test('按键与接收器灯效是 4 个槽位共用的', async () => {
+test('按键：只有「配置切换」同步到 4 个配置，其余按键与接收器灯效只改当前配置（与原版一致）', async () => {
   storeProfiles();
-  const l = new StProfileList();
-  l.initByText(mem.profile_G23);
-  l.list[2].key[2] = new C.KeyInfo(C.fMouse, C.fmsBACK);
-  l.list[0].receiverLED = 1;
-  saveProfiles('G23', l, 0);
   const hid = mouse();
-  hid.state.led = 1;
   RATES.forEach((r, i) => (hid.slots[i].rateIx = r));
   await connect(hid);
   const pl = store.state.profiles.list;
-  assert.ok(pl.every((p) => p.key[2].minor === C.fmsMIDDLE && p.receiverLED === 1), '连接时以当前槽位为准统一');
 
-  await store.assignKey(5, new C.KeyInfo(C.fMouse, C.favProfile));
+  // 普通按键：只改当前配置
+  await store.assignKey(2, new C.KeyInfo(C.fKeyboard, 0x04));
   await idle();
-  assert.ok(pl.every((p) => p.key[5].minor === C.favProfile));
+  assert.equal(pl[0].key[2].major, C.fKeyboard);
+  assert.equal(pl[1].key[2].minor, C.fmsMIDDLE, '其它配置不变');
+  assert.equal(pl[2].key[2].minor, C.fmsMIDDLE);
+
+  // 左右键互换：只改当前配置
+  store.swapLeftRight();
+  await idle();
+  assert.equal(pl[0].key[0].minor, C.fmsMENU);
+  assert.equal(pl[1].key[0].minor, C.fmsCLICK);
+
+  // 接收器灯效：只改当前配置
   store.setReceiverLED(2);
   await idle();
-  assert.ok(pl.every((p) => p.receiverLED === 2));
-  hid.writes.length = 0;
-  await pressTo(hid, 1);
-  assert.ok(!hid.writes.some((b) => b[0] === 6 || b[0] === 8), '切换时按键和灯效不用重写');
+  assert.equal(pl[0].receiverLED, 2);
+  assert.ok(pl.slice(1).every((p) => p.receiverLED === 0));
+
+  // "配置切换"键：同步到 4 个配置
+  await store.assignKey(5, new C.KeyInfo(C.fMouse, C.favProfile));
+  await idle();
+  assert.ok(pl.every((p) => p.key[5].minor === C.favProfile), '4 个配置都设为配置切换');
+  // 取消它：其它配置恢复默认，当前配置改为新功能
+  await store.assignKey(5, new C.KeyInfo(C.fMouse, C.favDPIDEC));
+  await idle();
+  assert.equal(pl[0].key[5].minor, C.favDPIDEC);
+  assert.ok(pl.slice(1).every((p) => p.key[5].minor === C.dvar.key[5].minor), '其余配置恢复默认');
   await store.disconnect('test');
 });
 

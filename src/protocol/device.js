@@ -536,7 +536,7 @@ export class IncottDevice extends EventTarget {
   /**
    * 读出鼠标当前板载配置（槽位）里的全部设置，读不到的项为 null。
    * 实测 G23V2：回报率、DPI 数值 / 档位数 / 当前档、LOD、传感器开关、传感器模式、消抖、休眠每个槽位各一份，
-   * 按键与接收器灯效 4 个槽位共用。读命令与官方桌面驱动一致（GamingMouse.exe sub_4447C0 / sub_445B50 / sub_444900 …）。
+   * 按键与接收器灯效由固件共用（软件里每个配置各记一份，与原版一致）。读命令与官方桌面驱动一致（GamingMouse.exe sub_4447C0 / sub_445B50 / sub_444900 …）。
    * @param dpiCount 读取前几档 DPI 数值
    * @param quick    只读用于区分槽位的几项（回报率、DPI、LOD、消抖、休眠），约 0.4 秒
    */
