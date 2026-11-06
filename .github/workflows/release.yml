@@ -36,8 +36,8 @@ jobs:
           - { name: linux-arm64, os: ubuntu-latest, args: --linux --arm64 }
           - { name: win-x64, os: windows-latest, args: --win --x64 }
           - { name: win-arm64, os: windows-latest, args: --win --arm64 }
-          - { name: mac-x64, os: macos-14, args: --mac --x64 }
-          - { name: mac-arm64, os: macos-14, args: --mac --arm64 }
+          - { name: mac-x64, os: macos-latest, args: --mac --x64 }
+          - { name: mac-arm64, os: macos-latest, args: --mac --arm64 }
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
