@@ -12,9 +12,10 @@ export const MOUSE_FUNCS = [
   [C.favDPI, 'dpi'],
   [C.favDPIINC, 'dpiInc'],
   [C.favDPIDEC, 'dpiDec'],
-  [C.favProfile, 'profile'],
   [C.favOFF, 'off'],
 ];
+// 「配置切换」不再出现在可选功能里（配置在电脑上切换），旧配置里遇到时仍能显示名称
+const MOUSE_NAMES = [...MOUSE_FUNCS, [C.favProfile, 'profile']];
 
 export const MEDIA_FUNCS = [
   [C.fmePLAYER, 'media1'],
@@ -65,7 +66,7 @@ export function keyLabel(kf, t, macros) {
       const interval = (kf.itemdata >> 16) & 65535;
       return `${t.fn.fire} · ${interval}ms × ${count || '∞'}`;
     }
-    const f = MOUSE_FUNCS.find(([m]) => m === kf.minor);
+    const f = MOUSE_NAMES.find(([m]) => m === kf.minor);
     return f ? t.fn[f[1]] : '';
   }
   if (kf.major === C.fMedia) {

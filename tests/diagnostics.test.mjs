@@ -199,6 +199,9 @@ test('issue #10 场景：额外按键槽位、写入是否生效、按键导致�
   store.state.phase = 'welcome';
   await store.autoConnect();
   assert.equal(store.state.phase, 'ready');
+  // 「配置切换」已不再支持：连接时恢复成该键默认功能并写入鼠标（这个假设备不会因写入而改变读到的值）
+  while (store.state.pending) await new Promise((r) => setImmediate(r));
+  assert.ok(hid.sent.some((b) => b[0] === 6 && b[1] === 5 && b[2] === 7 && b[4] === 3), '写入了 DPI 循环');
   const status = (rateIx) => ({ device: hid, reportId: 9, data: new DataView(new Uint8Array([0x50, 0x20 | rateIx, 0, 0, 0, 0, 0, 0]).buffer) });
   for (const fn of hid.listeners) {
     fn(status(0));
@@ -209,8 +212,8 @@ test('issue #10 场景：额外按键槽位、写入是否生效、按键导致�
   assert.match(text, /status: rate 1000→2000/);
   assert.match(text, /86 06 00 00 00 00 00 00 → 09 86 06 07 00 04 05 .*= 0x05040007 unknown: type=07 b1=00 b2=04 b3=05/);
   assert.match(text, /• extra slot m6 +device 0x5040007 +unknown: type=07/);
-  // 槽位 5 里确实是"配置切换"（写入生效），说明物理按键不在槽位 5
-  assert.match(text, /✓ key 6 \(m5\) +device 0xf10a +profile 0xf10a/);
+  // 槽位 5 里读到的仍是"配置切换"，和配置（已恢复为 DPI 循环）不一致：写入没有生效时诊断里看得出
+  assert.match(text, /≠ key 6 \(m5\) +device 0xf10a +profile 0x30007/);
   assert.match(text, /86 05 00 00 00 00 00 00 → 09 86 05 0A F1 00 00 00 00 .*= 0x0000f10a 配置切换/);
   await store.disconnect('test');
   granted = [];

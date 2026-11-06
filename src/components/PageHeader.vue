@@ -13,8 +13,8 @@ const titles = computed(() => ({
 }));
 const head = computed(() => titles.value[state.page] || ['', '']);
 
+// 配置保存在电脑上，点击即切换并写入鼠标；写入中也可以再点（只写最后点的那个）
 function onProfile(i) {
-  if (i === state.curIndex || state.pending) return;
   requestProfile(i);
 }
 </script>
@@ -36,8 +36,9 @@ function onProfile(i) {
     <div class="profiles">
       <span class="label">{{ t.onboardProfile }}</span>
       <div class="seg accent">
-        <button v-for="i in 4" :key="i" :class="{ on: state.curIndex === i - 1 }" :disabled="state.pending > 0 && state.curIndex !== i - 1" @click="onProfile(i - 1)">
-          {{ i }}
+        <button v-for="i in 4" :key="i" :class="{ on: state.curIndex === i - 1 }" @click="onProfile(i - 1)">
+          <LoaderCircle v-if="state.switchTo === i - 1" :size="13" class="spin" />
+          <template v-else>{{ i }}</template>
         </button>
       </div>
       <ProfileOverview />
@@ -77,6 +78,7 @@ h1 {
   width: 40px;
   padding: 0;
 }
+
 .sync {
   display: flex;
   align-items: center;

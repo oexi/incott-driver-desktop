@@ -53,7 +53,7 @@ const zh = {
 
   // 板载配置
   profile: '配置',
-  onboardProfile: '板载配置',
+  onboardProfile: '配置',
   profileN: (n) => `配置 ${n}`,
   importProfile: '导入配置文件 (.ict)',
   exportProfile: '导出当前配置',
@@ -64,7 +64,7 @@ const zh = {
   syncing: '正在同步',
   synced: '已同步',
   ovOpen: '查看 4 个配置分别保存了什么',
-  ovTitle: '板载配置一览',
+  ovTitle: '配置一览',
   ovCurrent: '当前',
   ovRate: '回报率',
   ovRateClamped: '当前连接按 1000 Hz 生效',
@@ -83,6 +83,15 @@ const zh = {
   ovKeys: '按键',
   ovKeysDefault: '全部默认',
   ovDiffHint: '标点的项目在各配置之间不同',
+  ovCopy: '复制到当前',
+  ovCopyTip: (n) => `把这个配置的全部设置复制到当前的配置 ${n}，并写入鼠标`,
+  ovCopyTitle: '复制配置',
+  ovCopyMsg: (from, to) => `用配置 ${from} 的全部设置覆盖配置 ${to}，并写入鼠标？配置 ${to} 原来的设置会丢失。`,
+  ovCopyOk: '覆盖',
+  ovCopyDone: (from, to) => `已把配置 ${from} 复制到配置 ${to}`,
+  switchKeyRemoved: (btns) => `「配置切换」已不再支持（配置改为在软件里切换）：${btns}已恢复默认功能并写入鼠标`,
+  adoptedOutside: (n) => `鼠标里的部分设置在软件外改过，已读进配置 ${n}`,
+  hwSlotMoved: '鼠标换到了另一套板载设置（可能有按键在别的驱动里设成了「配置切换」），已把当前配置写进去',
   writingDevice: '正在写入鼠标，请稍候…',
   applyFailed: '写入鼠标失败，请检查连接后重试',
 
@@ -262,7 +271,7 @@ const zh = {
   language: '语言',
   behavior: '行为',
   closeToTray: '关闭窗口时最小化到托盘',
-  closeToTrayDesc: '保持后台运行，可响应鼠标上的"配置切换"按键',
+  closeToTrayDesc: '关闭窗口后继续在托盘运行，鼠标上的 DPI 键等改动会继续记进当前配置',
   about: '关于',
   diagTitle: '问题反馈',
   diagCopy: '复制诊断信息',
@@ -305,7 +314,7 @@ const zh = {
   fNone: '没有发现明显异常',
   aboutDesc: '基于 INCOTT 官方网页驱动（WebHID）移植的桌面版。所有设置直接写入鼠标板载内存，本软件不联网。',
   firstRunNotice:
-    '首次使用：已从鼠标读取当前的按键映射与 DPI 档位数，其余参数（DPI 数值、消抖等）鼠标无法读出，暂显示默认值，修改前不会写入。若想完整沿用网页驱动的设置，可在网页驱动中导出 .ict 文件后在这里导入。',
+    '首次使用：已从鼠标读取现有的设置（按键、DPI、回报率、消抖等），4 个配置都从它开始，修改前不会写入。若想沿用网页驱动里保存的配置，可在网页驱动中导出 .ict 文件后在这里导入。',
   gotIt: '知道了',
 };
 
@@ -361,7 +370,7 @@ const en = {
   disconnect: 'Disconnect',
 
   profile: 'Profile',
-  onboardProfile: 'Onboard profile',
+  onboardProfile: 'Profile',
   profileN: (n) => `Profile ${n}`,
   importProfile: 'Import profile (.ict)',
   exportProfile: 'Export current profile',
@@ -372,7 +381,7 @@ const en = {
   syncing: 'Syncing',
   synced: 'Synced',
   ovOpen: 'Show what each of the 4 profiles contains',
-  ovTitle: 'Onboard profiles',
+  ovTitle: 'Profiles',
   ovCurrent: 'Active',
   ovRate: 'Polling rate',
   ovRateClamped: 'Runs at 1000 Hz on this connection',
@@ -391,6 +400,15 @@ const en = {
   ovKeys: 'Buttons',
   ovKeysDefault: 'All default',
   ovDiffHint: 'Rows with a dot differ between profiles',
+  ovCopy: 'Copy to active',
+  ovCopyTip: (n) => `Copy every setting of this profile into the active profile ${n} and write it to the mouse`,
+  ovCopyTitle: 'Copy profile',
+  ovCopyMsg: (from, to) => `Overwrite profile ${to} with every setting of profile ${from} and write it to the mouse? The current settings of profile ${to} will be lost.`,
+  ovCopyOk: 'Overwrite',
+  ovCopyDone: (from, to) => `Copied profile ${from} into profile ${to}`,
+  switchKeyRemoved: (btns) => `Profile Switch is no longer supported (profiles are switched in the app): ${btns} restored to default and written to the mouse`,
+  adoptedOutside: (n) => `Some settings were changed outside the app; they were taken into profile ${n}`,
+  hwSlotMoved: 'The mouse moved to another onboard slot (a button may be set to Profile Switch in another driver); the current profile was written into it',
   writingDevice: 'Writing to the mouse, please wait…',
   applyFailed: 'Failed to write to the mouse. Check the connection and retry.',
 
@@ -560,7 +578,7 @@ const en = {
   language: 'Language',
   behavior: 'Behavior',
   closeToTray: 'Minimize to tray on close',
-  closeToTrayDesc: 'Keep running in the background so the on-mouse profile button keeps working',
+  closeToTrayDesc: 'Keep running in the tray so changes made with the mouse buttons (DPI…) keep being saved to the current profile',
   about: 'About',
   diagTitle: 'Feedback',
   diagCopy: 'Copy diagnostics',
@@ -604,7 +622,7 @@ const en = {
   aboutDesc:
     'A desktop port of the official INCOTT WebHID driver. All settings are written to the mouse onboard memory; this app never goes online.',
   firstRunNotice:
-    'First run: button mapping and the number of DPI stages were read from the mouse. Other values (DPI numbers, debounce…) cannot be read back and show defaults until you change them. To keep all your web-driver settings, export an .ict file there and import it here.',
+    'First run: the current settings were read from the mouse (buttons, DPI, polling rate, debounce…) and all 4 profiles start from them; nothing is written until you change something. To reuse profiles saved in the web driver, export an .ict file there and import it here.',
   gotIt: 'Got it',
 };
 
