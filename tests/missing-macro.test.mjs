@@ -143,7 +143,9 @@ test('完整写入配置：遗留的失效宏绑定先恢复默认，整个配�
     store.state.curIndex = 1;
     assert.equal(await store.writeCurrentProfile(), true);
     assert.deepEqual(pl[1].key[3], C.dvar.key[3]);
-    assert.deepEqual(log.at(-1).slice(2, 5), [6, 9, 1]);
+    // 写到了最后一项（休眠时间）；配置在电脑上切换，不写 [6,9,序号]
+    assert.deepEqual(log.at(-1).slice(2, 5), [5, 3, 60]);
+    assert.ok(!log.some((x) => x[0] === 'F' && x[2] === 6 && x[3] === 9));
   } finally {
     store.state.device = null;
   }

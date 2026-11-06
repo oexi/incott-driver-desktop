@@ -3,9 +3,9 @@
 
 import { reactive, markRaw, computed } from 'vue';
 import * as C from './protocol/constants.js';
-import { IncottDevice, sleep, keyToHw } from './protocol/device.js';
+import { IncottDevice, sleep, keyToHw, hwToKey } from './protocol/device.js';
 import { StProfile, StProfileList, saveProfiles, loadProfiles } from './protocol/profile.js';
-import { STMacro, STMacroList, saveMacros, loadMacros } from './protocol/macro.js';
+import { STMacro, STMacroList, saveMacros, loadMacros, macroToHw } from './protocol/macro.js';
 import { MockHidDevice } from './protocol/mock.js';
 import { t, setLang } from './i18n.js';
 import { logEvent } from './diaglog.js';
@@ -74,8 +74,9 @@ export const state = reactive({
     productName: '',
   },
   profiles: new StProfileList(),
-  curIndex: 0, // 当前配置槽位
-  slot: null, // 鼠标实际所在的硬件槽位（0–3，未知时为 null；仅用于诊断）
+  curIndex: 0, // 当前配置（配置保存在电脑上，切换时写进鼠标）
+  slot: null, // 状态包报告的鼠标硬件槽位（只用于诊断）
+  switchTo: null, // 正在写进鼠标的配置（页头按钮显示转圈）
   macros: new STMacroList(),
   firstRun: false,
   page: 'buttons',
@@ -174,7 +175,8 @@ const FLAG_NAMES = [
   [C.apProSw, 'profileSwitch'],
 ];
 export function flagNames(flag) {
-  if ((flag & C.apALL) === C.apALL) return ['ALL', ...FLAG_NAMES.filter(([b]) => b > C.apALL && flag & b).map(([, n]) => n)].join('+');
+  const all = C.apALL & ~C.apOnboardIndex;
+  if ((flag & all) === all) return ['ALL', ...FLAG_NAMES.filter(([b]) => (b > C.apALL || b === C.apOnboardIndex) && flag & b).map(([, n]) => n)].join('+');
   return FLAG_NAMES.filter(([b]) => flag & b).map(([, n]) => n).join('+') || String(flag);
 }
 
@@ -189,6 +191,9 @@ function enqueue(run) {
 
 async function processQueue() {
   processing = true;
+  let allOk = true;
+  // 写入开始前记下"没写完"：中途断开的话，下次连接时把配置补写进去
+  if (state.device) setPending(true);
   while (queue.length) {
     const job = queue[0];
     const dev = state.device;
@@ -216,9 +221,7 @@ async function processQueue() {
       state.applying = true;
       const started = Date.now();
       try {
-        ok = await dev.apply(curProfile.value, job.flag, job.index, {
-          macros: state.macros,
-          profileIndex: state.curIndex,
+        ok = await applyToMouse(dev, curProfile.value, job.flag, job.index, {
           onProgress: (p) => {
             if (job.overlay) state.progress.pct = p;
           },
@@ -240,6 +243,7 @@ async function processQueue() {
       state.progress = { visible: false, pct: 0 };
     }
     if (!ok && state.device) toast(t.value.applyFailed, 'error', 4500);
+    allOk &&= ok;
     const i = queue.indexOf(job);
     if (i >= 0) {
       // 断开连接时队列会被清空，此时任务已在 disconnect 中结算
@@ -249,6 +253,7 @@ async function processQueue() {
     }
     if (queue.length) await sleep(100);
   }
+  if (allOk && state.device) setPending(false);
   processing = false;
 }
 
@@ -354,118 +359,185 @@ async function connectTo(hid) {
     await checkLinuxPermission();
     return;
   }
-  // 首次使用（本地没有该型号的配置记录）：从鼠标读取现有按键映射，尽量还原真实状态
-  let keyMap = null;
-  let quick = null;
-  if (!hasStoredProfiles(dev.devname)) {
-    try {
-      keyMap = await dev.readKeyMap();
-    } catch (err) {
-      console.warn('[readKeyMap]', err);
-    }
-    logEvent(`first run: key map read ${keyMap ? keyMap.map((k) => (k ? k.toText() : 'null')).join(' | ') : 'failed'}`);
-  } else {
-    // 读出鼠标当前硬件槽位里的几项设置：软件关闭期间按过切换键时，不用等状态包就能认出所在槽位
-    try {
-      quick = await dev.readSlot(C.getStDPI(dev.sensor)?.dpi.length ?? 6, { quick: true });
-    } catch (err) {
-      console.warn('[readSlot]', err);
-    }
+  // 和官方桌面驱动一样，连接时先读出鼠标里的全部设置（sub_4323B0）
+  let raw = null;
+  try {
+    raw = await dev.readSlot(C.getStDPI(dev.sensor)?.dpi.length ?? 6);
+  } catch (err) {
+    console.warn('[readSlot]', err);
   }
   logEvent(
     `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard}`
   );
+  if (raw) {
+    const keys = raw.keys.map((c) => (c == null ? '-' : (c >>> 0).toString(16))).join(' ');
+    const star = raw.starZero ? ' (desktop-driver read commands replied all zeros: treated as unknown)' : '';
+    logEvent(`mouse settings: rate=${raw.rate} dpi=${raw.cur}/${raw.levels} [${raw.dpi.join(' ')}] lod=${raw.lod} debounce=${raw.debounce} sleep=${raw.sleeptime} keys=${keys}${star}`);
+  }
   diag.connecting = null;
-  enterDevice(dev, keyMap, quick);
+  enterDevice(dev, raw);
 }
 
-function hasStoredProfiles(devname) {
+/* ------------------------------------------------------------- 板载配置 */
+
+// 与官方桌面驱动 GamingMouse.exe 相同（IDA 分析）：配置 1–4 保存在电脑上，鼠标只用它当前所在的那一个槽位。
+//   · 连接时（sub_436430 → 线程 sub_4323B0）把鼠标里的设置读进当前配置，不写入；
+//   · 切换 / 导入 / 恢复默认时（线程 StartAddress）把整套设置写进鼠标；
+//   · 不看状态包里的槽位序号，不发 [6,9,序号]，也没有「配置切换」键。
+// 官方网页驱动则跟随状态包里的槽位序号：G23V2 只能用鼠标上的「配置切换」键换槽位，软件里点了配置会被状态包
+// 跳回原配置；而且状态包只在鼠标动起来时才发（实测），刚连接时可能几十秒都不知道它在哪个槽位。
+// 在官方做法上的改进：
+//   · 软件记着鼠标里现在的设置（mouse），切换配置时只写不一样的项，不用先读，一般零点几秒（官方每次整套重写）；
+//   · 写入前记下"没写完"，写完才清除：中途断开（关软件、拔接收器）的话下次连接把配置补写完，
+//     不会像官方那样把写了一半的鼠标设置读回配置；
+//   · 连接时只把软件外改过的项（鼠标上的 DPI 键、别的驱动……）读进当前配置，X / Y 分开的 DPI 不受影响；
+//   · 鼠标仍有按键是「配置切换」时：连接时恢复成该键默认功能；用它换了槽位就立即把当前配置补写进新槽位；
+//   · 连点几个配置时只写最后点的那个。
+
+const WRITE_ALL = C.apALL & ~C.apOnboardIndex; // 整套写入，不含 [6,9,序号]（官方桌面驱动不发）
+const SWITCH_CODE = keyToHw(new C.KeyInfo(C.fMouse, C.favProfile), 0) >>> 0;
+
+let mouse = null; // 软件所知的鼠标当前设置（readSlot 的格式，读不到的项为 null；整个为 null = 不知道，写之前先读）
+let lastHwSlot = null; // 状态包报告的槽位序号：只用来发现鼠标换了槽位
+let syncToken = 0; // 写配置任务的序号：新的取代还没开始的旧任务
+let syncQueued = false; // 有排队还没开始的写配置任务
+let macroHw = {}; // 鼠标里每个按键当前装着的宏（签名）：宏的按键码只含按键序号，读回来分不出是哪个宏
+
+function loadJson(key) {
   try {
-    return !!localStorage.getItem(`profile_${devname}`);
-  } catch {
-    return false;
-  }
-}
-
-let statusSeen = false;
-
-/* ------------------------------------------------------------- 配置槽位 */
-
-// 实测 G23V2：鼠标里有 4 个硬件槽位，各存回报率 / DPI / 传感器 / 消抖 / 休眠；按键与接收器灯效由固件共用，
-// 但软件里仍按原版每个配置各记一份（写入时按键 / 灯效会同时影响 4 个硬件槽位）。
-// 硬件槽位只能用鼠标上的「配置切换」键切换（鼠标没有由软件换槽位的命令，原版的 [6,9,序号] 只是记一个编号），
-// 状态包第 3 字节高 2 位报告当前硬件槽位；软件的任何写入都只进入当前硬件槽位。
-// 与官方网页驱动相同，板载配置 N 对应硬件槽位 N：
-//   · 按鼠标上的切换键到硬件槽位 N = 切到板载配置 N，把它写进这个槽位（官方整套重写；这里先读出槽位，
-//     只写不一样的项，已经一致就不写）；
-//   · 点击板载配置 N = 写进鼠标当前所在的硬件槽位（官方随后会因槽位号对不上而跳回原配置，这里不跳回，
-//     保持到下次按切换键；之后回到这个硬件槽位时恢复它自己的配置）。
-
-let slotKnown = false; // 连接后是否已从状态包得知当前硬件槽位
-let slotPending = null; // 已排队的任务
-let slotToken = 0;
-let lastSlotSeen = null; // 最近一个状态包里的硬件槽位（写入期间也更新）
-let hwSlot = 0; // 鼠标实际所在的硬件槽位（最近一次得知的）
-// 每个硬件槽位里装着哪个配置槽位的设置（null = 不确定）
-let slotContent = [0, 1, 2, 3];
-const SLOT_SETTLE_MS = 400; // 实测 G23V2：刚换完槽位时最初几次读取会失败
-// 配置槽位 N 是否已有用户的内容：false（首次使用，只是默认值）时第一次用到它，用鼠标里的设置初始化
-let slotSynced = [true, true, true, true];
-
-const slotSyncKey = (devname) => `slotsync_${devname}`;
-function loadSlotSynced(devname, firstRun) {
-  try {
-    const v = JSON.parse(localStorage.getItem(slotSyncKey(devname)) || 'null');
-    if (Array.isArray(v) && v.length === C.MAX_ONBOARD) return v.map(Boolean);
-  } catch {
-    /* ignore */
-  }
-  return Array(C.MAX_ONBOARD).fill(!firstRun);
-}
-function markSlotSynced(i) {
-  if (slotSynced[i]) return;
-  slotSynced[i] = true;
-  try {
-    localStorage.setItem(slotSyncKey(state.info.devname), JSON.stringify(slotSynced));
-  } catch {
-    /* ignore */
-  }
-}
-
-const slotStateKey = (devname) => `slotstate_${devname}`;
-function loadSlotState(devname) {
-  try {
-    const v = JSON.parse(localStorage.getItem(slotStateKey(devname)) || 'null');
-    if (!v || !(v.hw >= 0 && v.hw < C.MAX_ONBOARD)) return null;
-    const ok = (p) => (Number.isInteger(p) && p >= 0 && p < C.MAX_ONBOARD ? p : null);
-    const content = Array.isArray(v.content) ? v.content.map(ok) : [0, 1, 2, 3].map((i) => (v.dirty?.[i] ? null : i));
-    return { hw: v.hw, content };
+    return JSON.parse(localStorage.getItem(key) || 'null');
   } catch {
     return null;
   }
 }
-function saveSlotState() {
+function saveJson(key, v) {
   try {
-    localStorage.setItem(slotStateKey(state.info.devname), JSON.stringify({ hw: hwSlot, content: slotContent }));
+    localStorage.setItem(key, JSON.stringify(v));
+  } catch {
+    /* ignore */
+  }
+}
+function lsGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function lsSet(key, v) {
+  try {
+    if (v == null) localStorage.removeItem(key);
+    else localStorage.setItem(key, v);
   } catch {
     /* ignore */
   }
 }
 
-/** 当前配置槽位刚完整写入鼠标当前硬件槽位 */
-function markWritten() {
-  markSlotSynced(state.curIndex);
-  slotContent[hwSlot] = state.curIndex;
-  saveSlotState();
+const macroHwKey = (devname) => `macrohw_${devname}`;
+const pendingKey = (devname) => `pendingwrite_${devname}`;
+const modeKey = (devname) => `profilemode_${devname}`;
+// 旧版本（跟随硬件槽位）留下的记录
+const LEGACY_KEYS = ['slotsync_', 'slotstate_', 'softswitch_', 'statusseen_'];
+
+/** 鼠标可能和当前配置不一致（写入开始时记下，全部写完才清除；下次连接时据此补写） */
+function setPending(on) {
+  if (state.info.devname) lsSet(pendingKey(state.info.devname), on ? String(state.curIndex) : null);
 }
 
-/** 比对配置与硬件槽位的实际内容，返回需要写入的 [flag, index]；读不到的项按需要写入处理 */
-export function slotDiff(pf, raw, dev) {
+export const isSwitchKey = (k) => !!k && k.major === C.fMouse && k.minor === C.favProfile;
+const isLeftKey = (k) => !!k && k.major === C.fMouse && k.minor === C.fmsCLICK;
+
+/** 「配置切换」已不再支持（配置在电脑上切换）：恢复为该键的默认功能，返回改动的按键序号 */
+export function dropSwitchKeys(pf) {
+  const out = [];
+  pf.key.forEach((k, i) => {
+    if (!isSwitchKey(k)) return;
+    pf.key[i] = C.dvar.key[i].copy();
+    out.push(i);
+  });
+  return out;
+}
+
+/** 宏写进鼠标的内容签名（按键序号也编在里面） */
+function macroSig(m, i) {
+  const b = m && macroToHw(m, i);
+  if (!b) return null;
+  let h = 0x811c9dc5;
+  for (const x of b) h = Math.imul(h ^ x, 0x01000193);
+  return (h >>> 0).toString(16);
+}
+
+/** 实际写入的按键：绑定的宏已不存在时按默认功能（与 device.apply 一致） */
+function effectiveKey(pf, i) {
+  const k = pf.key[i];
+  return k.major === C.fJuji && !state.macros.find(k.itemdata) ? C.dvar.key[i] : k;
+}
+
+const blankMouse = () => ({ rate: null, levels: null, cur: null, dpi: [], lod: null, ripple: null, fixline: null, motion: null, sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null });
+
+/** 写入成功后更新 mouse：与 device.apply 写入的项目一一对应 */
+function trackWrite(m, pf, flag, index, dev) {
+  if (flag & C.apKey) {
+    pf.key.forEach((_, i) => {
+      if (index !== 255 && i !== index) return;
+      const k = effectiveKey(pf, i);
+      m.keys[i] = keyToHw(k, i);
+      if (k.major === C.fMouse && k.minor === C.favFIRE) m.fire = [Math.min(k.itemdata & 65535, 3), Math.min((k.itemdata >> 16) & 65535, 255)];
+    });
+  }
+  if (flag & C.apDpi) {
+    pf.dpi.forEach((x, i) => {
+      if (index !== 255 && i !== index) return;
+      // X / Y 分开时读回来的只有 X，记成"不知道"，下次照写
+      m.dpi[i] = pf.dpiy[i] === x ? C.getHwForDpi(x, dev.sensor) : null;
+    });
+  }
+  if (flag & C.apDpiLevel) {
+    m.levels = pf.dpi.length;
+    m.cur = Math.min(pf.curDpi, pf.dpi.length - 1);
+  }
+  const rate = dev.writableRate(pf.usbrate);
+  if (flag & C.apRate) m.rate = rate;
+  if (flag & C.apSensorMode && rate < 2000) m.sensormode = pf.sensormode;
+  if (flag & C.apLod) m.lod = C.lodToHw(pf.lod, dev.sensor);
+  if (flag & C.apSensor) {
+    if (index & 1) m.ripple = pf.ripple ? 1 : 0;
+    if (index & 2) m.fixline = pf.fixline ? 1 : 0;
+    if (index & 4) m.motion = pf.motion ? 1 : 0;
+  }
+  if (flag & C.apReceiverLED && dev.is8KReceiver) m.receiverLED = pf.receiverLED;
+  if (flag & C.apDebounce) m.debounce = Math.min(pf.debounce, C.DEBOUNCE_MAX);
+  if (flag & C.apSleepTime) m.sleeptime = Math.max(pf.sleeptime, 10);
+}
+
+/** dev.apply 的包装：记下写进鼠标的内容；写入失败时鼠标里是什么就不确定了 */
+async function applyToMouse(dev, pf, flag, index, opts = {}) {
+  // profileIndex: null —— 不写 [6,9,序号]
+  const ok = await dev.apply(pf, flag, index, { macros: state.macros, ...opts, profileIndex: null });
+  if (flag & C.apKey) {
+    pf.key.forEach((k, i) => {
+      if (index !== 255 && i !== index) return;
+      const m = k.major === C.fJuji ? state.macros.find(k.itemdata) : null;
+      macroHw[i] = ok ? macroSig(m, i) : '?';
+    });
+    saveJson(macroHwKey(state.info.devname), macroHw);
+  }
+  if (!ok) mouse = null;
+  else {
+    // 整套写成功：不管之前知不知道，鼠标里现在就是这个配置
+    if (!mouse && (flag & WRITE_ALL) === WRITE_ALL && index === 255) mouse = blankMouse();
+    if (mouse) trackWrite(mouse, pf, flag, index, dev);
+  }
+  return ok;
+}
+
+/** 配置与鼠标里的设置比对，返回需要写入的 [flag, index]；不知道的项按需要写入处理 */
+export function mouseDiff(pf, raw, dev) {
   const neq = (a, b) => a == null || a !== b;
   const jobs = [];
   const keys = [];
   pf.key.forEach((k0, i) => {
-    const k = k0.major === C.fJuji && !state.macros.find(k0.itemdata) ? C.dvar.key[i] : k0;
+    const k = effectiveKey(pf, i);
     const code = keyToHw(k, i);
     if (code === -1) return;
     let diff = raw.keys[i] == null || raw.keys[i] >>> 0 !== code >>> 0;
@@ -474,6 +546,8 @@ export function slotDiff(pf, raw, dev) {
       const ir = Math.min((k.itemdata >> 16) & 65535, 255);
       diff = !raw.fire || raw.fire[0] !== lp || raw.fire[1] !== ir;
     }
+    // 按键码只说明这个键是宏，装的是哪个宏要看记录
+    if (!diff && k0 === k && k.major === C.fJuji) diff = macroHw[i] !== macroSig(state.macros.find(k.itemdata), i);
     if (diff) keys.push(i);
   });
   if (keys.length) jobs.push([C.apKey, keys.length === 1 ? keys[0] : 255]);
@@ -502,166 +576,173 @@ export function slotDiff(pf, raw, dev) {
   return jobs;
 }
 
-/** 首次使用：用硬件槽位里的实际设置初始化配置槽位（按键与接收器灯效由固件共用，不在这里处理） */
-function adoptSlot(pf, raw, dev) {
+/** 从鼠标读回的按键码还原按键功能（火力键带上读到的参数）；还原不了（宏）时为 null */
+function keyFromHw(code, fire) {
+  if (code == null) return null;
+  if (code >>> 0 === keyToHw(new C.KeyInfo(C.fMouse, C.favFIRE), 0) >>> 0) {
+    const k = new C.KeyInfo(C.fMouse, C.favFIRE);
+    k.itemdata = fire ? ((fire[1] & 255) << 16) | (fire[0] & 3) : 40 << 16;
+    return k;
+  }
+  return hwToKey(code);
+}
+
+/**
+ * 把鼠标里和配置不一样的项读进配置（只改不一样的项，读不到的不动），返回改了哪些。
+ * 对应官方连接时的 sub_4323B0（它整套读进来）；这里只动不同的项，X / Y 分开的 DPI 在 X 没变时保留。
+ */
+function adoptFromMouse(pf, raw, dev) {
+  const changed = new Set();
   const st = C.getStDPI(dev.sensor);
-  if (raw.rate) pf.usbrate = raw.rate;
+  const toUi = (hw) => {
+    const j = st ? st.dpiHW.indexOf(hw) : -1;
+    return j >= 0 ? st.dpiUI[j] : null;
+  };
   const lv = raw.levels;
-  if (st && lv >= 1 && lv <= st.dpi.length) {
-    const dpi = [];
-    for (let i = 0; i < lv; i++) {
-      const j = raw.dpi[i] == null ? -1 : st.dpiHW.indexOf(raw.dpi[i]);
-      dpi.push(j >= 0 ? st.dpiUI[j] : pf.dpi[i] ?? st.dpi[i]);
+  if (st && lv >= 1 && lv <= st.dpi.length && lv !== pf.dpi.length) {
+    for (let i = pf.dpi.length; i < lv; i++) {
+      pf.dpi.push(st.dpi[i]);
+      pf.dpiy.push(st.dpi[i]);
     }
-    pf.dpi = dpi;
-    pf.dpiy = dpi.slice();
+    pf.dpi.length = lv;
+    pf.dpiy.length = lv;
     pf.dpicolor = st.dpicolor.slice(0, lv);
+    changed.add('dpi');
   }
-  if (raw.cur != null) pf.curDpi = Math.min(raw.cur, pf.dpi.length - 1);
+  pf.dpi.forEach((x, i) => {
+    const ui = raw.dpi[i] == null ? null : toUi(raw.dpi[i]);
+    if (ui == null || C.getHwForDpi(x, dev.sensor) === raw.dpi[i]) return;
+    pf.dpi[i] = ui;
+    pf.dpiy[i] = ui;
+    changed.add('dpi');
+  });
+  if (raw.cur != null && raw.cur < pf.dpi.length && raw.cur !== pf.curDpi) {
+    pf.curDpi = raw.cur;
+    changed.add('curDpi');
+  }
+  // 非 8K 连接下 2000+ Hz 的配置按 1000 Hz 写入，读到 1000 不算改过
+  if (raw.rate && dev.writableRate(pf.usbrate) !== raw.rate) {
+    pf.usbrate = raw.rate;
+    changed.add('rate');
+  }
   const lod = [0, 1, 2].find((l) => C.lodToHw(l, dev.sensor) === raw.lod && (l !== 0 || dev.sensor === C.SENSOR_3950));
-  if (lod != null) pf.lod = lod;
-  if (raw.ripple != null) pf.ripple = !!raw.ripple;
-  if (raw.fixline != null) pf.fixline = !!raw.fixline;
-  if (raw.motion != null) pf.motion = !!raw.motion;
-  if (raw.sensormode != null && raw.sensormode <= 2) pf.sensormode = raw.sensormode;
-  if (raw.debounce != null) pf.debounce = raw.debounce;
-  if (raw.sleeptime) pf.sleeptime = raw.sleeptime;
+  if (lod != null && C.lodToHw(pf.lod, dev.sensor) !== raw.lod) {
+    pf.lod = lod;
+    changed.add('lod');
+  }
+  for (const f of ['ripple', 'fixline', 'motion']) {
+    if (raw[f] != null && !!raw[f] !== !!pf[f]) {
+      pf[f] = !!raw[f];
+      changed.add(f);
+    }
+  }
+  if (raw.sensormode != null && raw.sensormode <= 2 && dev.writableRate(pf.usbrate) < 2000 && raw.sensormode !== pf.sensormode) {
+    pf.sensormode = raw.sensormode;
+    changed.add('sensormode');
+  }
+  if (raw.debounce != null && raw.debounce !== Math.min(pf.debounce, C.DEBOUNCE_MAX)) {
+    pf.debounce = raw.debounce;
+    changed.add('debounce');
+  }
+  if (raw.sleeptime && raw.sleeptime !== Math.max(pf.sleeptime, 10)) {
+    pf.sleeptime = raw.sleeptime;
+    changed.add('sleeptime');
+  }
+  if (dev.is8KReceiver && raw.receiverLED != null && raw.receiverLED !== pf.receiverLED) {
+    pf.receiverLED = raw.receiverLED;
+    changed.add('receiverLED');
+  }
+  // 全部读成"禁用"不合理（多半是读取异常），此时不采用按键
+  const keys = raw.keys.map((code) => keyFromHw(code, raw.fire));
+  if (keys.some((k) => k && !(k.major === C.fMouse && k.minor === C.favOFF))) {
+    keys.forEach((k, i) => {
+      if (!k) return; // 宏等还原不了的保持原样
+      const cur = effectiveKey(pf, i);
+      const same = keyToHw(cur, i) >>> 0 === keyToHw(k, i) >>> 0 && (k.minor !== C.favFIRE || cur.itemdata === k.itemdata);
+      if (same) return;
+      pf.key[i] = k;
+      changed.add('key');
+    });
+  }
+  return [...changed];
 }
 
-/** 硬件槽位读到的设置是否就是配置 pf（读不到的项不算不一致；不比较当前 DPI 档、按键与灯效） */
-function slotMatches(pf, raw, dev) {
-  const eq = (a, b) => a == null || a === b;
-  if (raw.rate == null) return false;
-  if (!eq(raw.rate, dev.writableRate(pf.usbrate)) || !eq(raw.levels, pf.dpi.length)) return false;
-  for (let i = 0; i < pf.dpi.length; i++) if (!eq(raw.dpi[i], C.getHwForDpi(pf.dpi[i], dev.sensor))) return false;
-  if (!eq(raw.lod, C.lodToHw(pf.lod, dev.sensor))) return false;
-  if (!eq(raw.debounce, Math.min(pf.debounce, C.DEBOUNCE_MAX))) return false;
-  return eq(raw.sleeptime, Math.max(pf.sleeptime, 10));
-}
-
-/** 连接时认出鼠标所在的硬件槽位：读到的设置只和一个硬件槽位里装的配置一致时返回 { slot, profile } */
-function identifySlot(raw, dev) {
-  if (!raw) return null;
-  const hits = [];
-  slotContent.forEach((p, h) => {
-    if (p != null && state.profiles.list[p] && slotMatches(state.profiles.list[p], raw, dev)) hits.push({ slot: h, profile: p });
-  });
-  return hits.length === 1 ? hits[0] : null;
-}
-
-/** 同步期间鼠标又换了硬件槽位：结束当前任务后立即处理新的槽位 */
-function slotMoved(slot) {
-  if (lastSlotSeen == null || lastSlotSeen === slot) return false;
-  const next = lastSlotSeen;
-  // 状态包处理时通常已经切过去了；没有的话补上
-  if (hwSlot !== next) setTimeout(() => queueSlotEnter(next), 0);
-  return true;
-}
-
-/** 排队执行槽位相关任务；新的任务会取代还没开始的旧任务 */
-function queueSlotJob(key, run) {
-  if (slotPending === key) return Promise.resolve(true);
-  slotPending = key;
-  const token = ++slotToken;
+/** 排队把配置 p 写进鼠标；新的取代还没开始的旧任务。settle：鼠标刚换了硬件槽位，先等一下再读 */
+function queueSync(p, { settle = false } = {}) {
+  const token = ++syncToken;
+  syncQueued = true;
   return enqueue(async () => {
-    if (token !== slotToken) return true;
-    slotPending = null;
+    if (token !== syncToken) return true; // 已被新的任务取代（连点了几个配置）
+    syncQueued = false;
     if (!state.device) return false;
-    return run(state.device);
+    return writeProfile(state.device, p, { settle });
   });
 }
 
-/** 读出当前硬件槽位，把配置槽位 p 写进去（只写不一样的项）；aligned：槽位里本来就是 p，当前 DPI 档以鼠标为准 */
-async function loadIntoSlot(dev, p, head, { aligned = false, settle = false } = {}) {
-  const slot = hwSlot;
+/** 把配置 p 写进鼠标：只写和鼠标不一样的项（不知道鼠标里是什么时先读一遍） */
+async function writeProfile(dev, p, { settle = false } = {}) {
+  if (state.curIndex !== p) return true; // 又切到了别的配置，它的任务在后面
   const pf = state.profiles.list[p];
+  if (!pf) return false;
+  const head = `write profile ${p + 1}`;
   const started = Date.now();
-  if (settle) await sleep(SLOT_SETTLE_MS);
-  const raw = await dev.readSlot(C.getStDPI(dev.sensor)?.dpi.length ?? 6);
-  if (state.device !== dev) return false;
-  // 读取期间又按了切换键：放弃这次（不算失败），改为处理新的槽位
-  if (slotMoved(slot)) return logEvent(`${head}: slot changed again while reading, skipped`), true;
-  if (state.curIndex !== p) {
-    state.curIndex = p;
-    persist();
+  const ms = () => `${Date.now() - started}ms`;
+  let read = '';
+  if (!mouse) {
+    // 实测 G23V2：刚换完硬件槽位时最初几次读取会失败
+    if (settle) await sleep(400);
+    mouse = await dev.readSlot(C.getStDPI(dev.sensor)?.dpi.length ?? 6);
+    if (state.device !== dev) return false;
+    read = ' (read the mouse first)';
   }
-  // 首次使用：配置槽位还只是默认值，用鼠标里的设置初始化，不写入
-  if (!slotSynced[p]) {
-    adoptSlot(pf, raw, dev);
-    markSlotSynced(p);
-    slotContent[slot] = p;
-    saveSlotState();
-    persist();
-    logEvent(`${head}: initialised from mouse (rate=${raw.rate} dpi=${raw.cur}/${raw.levels}) ${Date.now() - started}ms`);
-    return true;
-  }
-  // 当前 DPI 档以鼠标为准（鼠标上的 DPI 键随时会改它）
-  if (aligned && raw.cur != null) setCurDpi(raw.cur);
   const fixed = dropMissingMacros(pf);
-  if (fixed.length) toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
-  const jobs = slotDiff(pf, raw, dev);
+  if (fixed.length) {
+    persist();
+    toast(t.value.macroMissingReset(fixed.length), 'warn', 4500);
+  }
+  const jobs = mouseDiff(pf, mouse, dev);
+  if (!jobs.length) return logEvent(`${head}: already in the mouse${read} ${ms()}`), true;
+  // 宏要分 10 包写，比较慢：显示进度
+  const slow = jobs.some(([f, i]) => f & C.apKey && pf.key.some((k, b) => (i === 255 || i === b) && k.major === C.fJuji));
+  if (slow) state.progress = { visible: true, pct: 0 };
   let ok = true;
   let stopped = false;
-  if (jobs.length) {
-    state.progress = { visible: true, pct: 0 };
-    for (let j = 0; j < jobs.length && ok; j++) {
-      // 写入期间又按了切换键：停止（不算失败），改为处理新的槽位；这个槽位下次切回来时再补齐
-      if (slotMoved(slot)) {
-        stopped = true;
-        break;
-      }
-      const [flag, index] = jobs[j];
-      ok = await dev.apply(pf, flag, index, {
-        macros: state.macros,
-        profileIndex: p,
-        onProgress: (v) => (state.progress.pct = ((j + v / 100) / jobs.length) * 100),
-      });
+  for (let j = 0; j < jobs.length && ok; j++) {
+    // 写的过程中又点了别的配置：停下（不算失败），接着写新的那个
+    if (state.curIndex !== p) {
+      stopped = true;
+      break;
     }
+    const [flag, index] = jobs[j];
+    ok = await applyToMouse(dev, pf, flag, index, {
+      onProgress: (v) => slow && (state.progress.pct = ((j + v / 100) / jobs.length) * 100),
+    });
+  }
+  if (slow) {
     state.progress.pct = 100;
     await sleep(250);
     state.progress = { visible: false, pct: 0 };
   }
-  slotContent[slot] = ok && !stopped ? p : null;
-  saveSlotState();
-  persist();
-  const what = jobs.length ? `wrote ${jobs.map(([f, i]) => (i ? `${flagNames(f)}#${i}` : flagNames(f))).join(', ')}` : 'in sync';
-  const end = stopped ? ' → stopped, slot changed again' : ok ? '' : ` → FAILED at ${dev.applyError || '?'}`;
-  logEvent(`${head}: ${what}${end} ${Date.now() - started}ms`);
+  const what = jobs.map(([f, i]) => (i ? `${flagNames(f)}#${i}` : flagNames(f))).join(', ');
+  const end = stopped ? ' → stopped, another profile was picked' : ok ? '' : ` → FAILED at ${dev.applyError || '?'}`;
+  logEvent(`${head}: wrote ${what}${read}${end} ${ms()}`);
   return ok;
 }
 
-/** 鼠标换到硬件槽位 slot（按了切换键）：切到板载配置 slot；keep：鼠标仍在原来的槽位（刚连接），保持当前配置 */
-function queueSlotEnter(slot, keep = false) {
-  const fromSlot = hwSlot;
-  const from = state.curIndex;
-  const p = keep ? from : slot;
-  // 界面立即切换，读取 / 写入在队列里进行
-  hwSlot = slot;
-  state.slot = slot;
-  saveSlotState();
-  if (state.curIndex !== p) {
-    state.curIndex = p;
-    persist();
-  }
-  const head = `hw slot ${fromSlot + 1} → ${slot + 1}, profile ${from + 1} → ${p + 1}`;
-  return queueSlotJob(`enter:${slot}:${p}`, (dev) =>
-    loadIntoSlot(dev, p, head, { aligned: slotContent[slot] === p, settle: fromSlot !== slot })
-  );
-}
-
-/** 点击板载配置 p：写进鼠标当前所在的硬件槽位 */
-function queueProfileLoad(p) {
-  const from = state.curIndex;
-  state.curIndex = p; // 界面立即切换，写入在队列里进行
+/** 点击板载配置 p：界面立即切换，写入在队列里进行 */
+export function requestProfile(p) {
+  if (!state.device || p < 0 || p >= C.MAX_ONBOARD || p === state.curIndex) return;
+  logEvent(`switch profile ${state.curIndex + 1} → ${p + 1}`);
+  state.curIndex = p;
+  state.switchTo = p;
   persist();
-  return queueSlotJob(`load:${p}`, (dev) => {
-    const head = `click profile ${from + 1} → ${p + 1} (hw slot ${hwSlot + 1})`;
-    return loadIntoSlot(dev, p, head, { aligned: slotContent[hwSlot] === p });
+  return queueSync(p).finally(() => {
+    if (state.switchTo === p) state.switchTo = null;
   });
 }
 
-/** 原版 connectDevice 的第二阶段：载入本地配置，进入设置界面 */
-function enterDevice(dev, keyMap, quick = null) {
+/** 原版 connectDevice 的第二阶段：载入本地配置，进入设置界面；raw 是连接时从鼠标读到的设置 */
+function enterDevice(dev, raw) {
   state.device = dev;
   Object.assign(state.info, {
     devname: dev.devname,
@@ -675,9 +756,10 @@ function enterDevice(dev, keyMap, quick = null) {
     productName: dev.hid.productName || '',
   });
 
+  const name = dev.devname;
   const st = C.getStDPI(dev.sensor);
   const list = new StProfileList();
-  const { count, index } = loadProfiles(dev.devname, list);
+  const { count, index } = loadProfiles(name, list);
   state.firstRun = count <= 0;
   for (let i = list.list.length; i < C.MAX_ONBOARD; i++) {
     const p = new StProfile(`${t.value.onboardProfile}${i + 1}`, C.dvar, dev.sensor);
@@ -693,49 +775,57 @@ function enterDevice(dev, keyMap, quick = null) {
     }
   }
   state.profiles = list;
-  // 先用上次记住的配置；连接时读到的设置能认出硬件槽位时以它为准，否则等第一个状态包
   let idx = index;
   if (idx == null || idx < 0 || idx > 3) idx = 0;
   state.curIndex = idx;
+  state.switchTo = null;
   state.slot = null;
-  slotSynced = loadSlotSynced(dev.devname, state.firstRun);
-  const ss = loadSlotState(dev.devname);
-  hwSlot = ss ? ss.hw : idx;
-  slotContent = ss ? ss.content : [0, 1, 2, 3];
-  // 连接时读到的设置正好只和某一个硬件槽位里装的配置一致：鼠标多半就在那个槽位，先这样显示，不用等状态包。
-  // 还在上次的槽位：保持上次的配置；换过槽位（软件关闭期间按了切换键）：切到同编号的板载配置。
-  // 这只用于显示：是否需要写入仍以随后的状态包为准（例如换过接收器时可能认错），认错了状态包到达时会纠正
-  const found = identifySlot(quick, dev);
-  if (found) {
-    logEvent(`connect: settings match hw slot ${found.slot + 1} (holds profile ${found.profile + 1}), last known hw slot ${hwSlot + 1} (profile ${idx + 1})`);
-    if (found.slot !== hwSlot) idx = found.slot;
-    hwSlot = found.slot;
-    state.curIndex = idx;
-    state.slot = hwSlot;
-    saveSlotState();
-  }
-  slotKnown = false;
-  slotPending = null;
-  lastSlotSeen = null;
+  lastHwSlot = null;
+  syncQueued = false;
+  syncToken++;
+  const mh = loadJson(macroHwKey(name));
+  macroHw = mh && typeof mh === 'object' && !Array.isArray(mh) ? mh : {};
+  mouse = raw ? { ...raw, dpi: raw.dpi.slice(), keys: raw.keys.slice(), fire: raw.fire && raw.fire.slice() } : null;
+
+  const pf = list.list[idx];
+  const pending = lsGet(pendingKey(name)) != null;
+  const legacy = !state.firstRun && lsGet(modeKey(name)) !== 'pc';
+  let push = false;
   if (state.firstRun) {
-    const pf = list.list[idx];
-    // 全部读成"禁用"不合理（多半是读取异常），此时不采用
-    const plausible = keyMap && keyMap.some((k) => k && !(k.major === C.fMouse && k.minor === C.favOFF));
-    if (plausible) keyMap.forEach((k, i) => k && (pf.key[i] = k));
-    const lv = dev.dpiLevels;
-    if (lv >= 1 && lv <= st.dpi.length && lv !== pf.dpi.length) {
-      pf.dpi = st.dpi.slice(0, lv);
-      pf.dpiy = st.dpi.slice(0, lv);
-      pf.dpicolor = st.dpicolor.slice(0, lv);
-    }
+    // 首次使用：4 个配置都从鼠标现在的设置开始，切换配置不会突然变回默认值
+    if (raw) for (const p of list.list) adoptFromMouse(p, raw, dev);
+    logEvent(`first run: all 4 profiles start from the mouse (rate=${raw?.rate} dpi=${raw?.cur}/${raw?.levels})`);
+  } else if (pending || legacy) {
+    // 上次没写完，或者从旧版本（跟随硬件槽位）升级：鼠标里不一定是当前配置，把当前配置写进去
+    push = true;
+    logEvent(`connect: ${pending ? 'last write did not finish' : 'upgraded from the slot-following version'}, writing profile ${idx + 1} to the mouse`);
+  } else if (raw) {
+    // 和官方一样以鼠标为准，但只读进软件外改过的项
+    const changed = adoptFromMouse(pf, raw, dev);
+    if (changed.length) logEvent(`connect: changed outside the app, taken into profile ${idx + 1}: ${changed.join(', ')}`);
+    const shown = changed.filter((c) => c !== 'curDpi');
+    if (shown.length) toast(t.value.adoptedOutside(idx + 1), 'info', 5000);
   }
-  setCurDpi(dev.curDpi);
-  statusSeen = false;
+  // 「配置切换」键不再支持：配置里和鼠标里的都恢复成该键默认功能
+  const dropped = new Set();
+  for (const p of list.list) dropSwitchKeys(p).forEach((b) => dropped.add(b));
+  (raw?.keys || []).forEach((code, b) => code != null && code >>> 0 === SWITCH_CODE && dropped.add(b));
+  if (dropped.size) {
+    push = true;
+    const names = [...dropped].sort().map((b) => t.value.btnName[b]);
+    logEvent(`connect: Profile Switch removed from button(s) ${[...dropped].map((b) => b + 1).join(', ')}`);
+    toast(t.value.switchKeyRemoved(names.join('、')), 'warn', 9000);
+  }
+  lsSet(modeKey(name), 'pc');
+  for (const k of LEGACY_KEYS) lsSet(`${k}${name}`, null);
+  // GHERO 等读不到当前档时，沿用连接时 0x83 读到的
+  if (!raw || raw.cur == null) setCurDpi(dev.curDpi);
   persist();
 
   lastStatus = null;
   dev.addEventListener('status', onStatus);
   state.phase = 'ready';
+  if (push) queueSync(idx);
 }
 
 /** 原版 dpiSetCurDPI：只更新界面/配置，不写入 */
@@ -746,49 +836,57 @@ function setCurDpi(index) {
   pf.curDpi = index;
 }
 
-/** 状态包里的回报率 / DPI 档 / 板载序号 / 充电变化记入事件日志（例如按鼠标上的回报率键会体现在这里） */
+/** 状态包里的回报率 / DPI 档 / 槽位 / 充电变化记入事件日志（例如按鼠标上的回报率键会体现在这里） */
 let lastStatus = null;
 function logStatusChange(s) {
   const p = lastStatus;
   lastStatus = s;
-  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} profile=${s.profileIndex} power=${s.power} charging=${s.charging}`);
+  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} slot=${s.profileIndex} power=${s.power} charging=${s.charging}`);
   const diff = [];
   if (p.rate !== s.rate) diff.push(`rate ${p.rate}→${s.rate}`);
   if (p.dpiIndex !== s.dpiIndex) diff.push(`dpi# ${p.dpiIndex}→${s.dpiIndex}`);
-  if (p.profileIndex !== s.profileIndex) diff.push(`profile ${p.profileIndex}→${s.profileIndex}`);
+  if (p.profileIndex !== s.profileIndex) diff.push(`slot ${p.profileIndex}→${s.profileIndex}`);
   if (p.charging !== s.charging) diff.push(`charging ${p.charging}→${s.charging}`);
   if (diff.length) logEvent(`status: ${diff.join(', ')}${state.applying ? ' (while applying)' : ''}`);
 }
 
-/** 原版 irServer：处理鼠标主动上报的状态 */
+/** 原版 irServer：处理鼠标主动上报的状态（不看槽位序号，配置在电脑上切换） */
 function onStatus(e) {
   const s = e.detail;
   logStatusChange(s);
-  lastSlotSeen = s.profileIndex;
-  // 界面显示的电量 / 充电 / 回报率随时更新（写入期间、换槽位时也一样），只有改写配置要等写入结束
+  // 界面显示的电量 / 充电 / 回报率随时更新（写入期间也一样），只有改写配置要等写入结束
   state.info.charging = s.charging;
   state.info.power = s.power;
   if (s.rate) state.info.rate = s.rate;
-  // 鼠标换了硬件槽位（按了鼠标上的配置切换键）：界面立即切到同编号的板载配置（写入期间也一样，
-  // 正在进行的写入会自行停止）；刚连接、鼠标仍在上次的槽位时保持上次的配置（可能是点选的）
-  if (!slotKnown || s.profileIndex !== hwSlot) {
-    const keep = !slotKnown && s.profileIndex === hwSlot;
-    slotKnown = true;
-    queueSlotEnter(s.profileIndex, keep);
-    return; // 这个状态包里的回报率 / DPI 档属于新槽位，读取时一并处理
+  state.slot = s.profileIndex;
+  // 鼠标换了槽位：它还有按键是「配置切换」（例如之后用别的驱动设的）。新槽位里是别的设置，
+  // 状态包里的回报率 / DPI 也是那个槽位的，不能记进当前配置——把当前配置补写进去
+  if (lastHwSlot != null && s.profileIndex !== lastHwSlot) {
+    lastHwSlot = s.profileIndex;
+    mouse = null;
+    logEvent(`mouse moved to hardware slot ${s.profileIndex + 1}: writing profile ${state.curIndex + 1} into it`);
+    toast(t.value.hwSlotMoved, 'warn', 7000);
+    queueSync(state.curIndex, { settle: true });
+    return;
   }
-  if (state.applying || slotPending != null) return;
-  statusSeen = true;
+  lastHwSlot = s.profileIndex;
+  if (state.applying || syncQueued) return;
+  const pf = curProfile.value;
+  if (!pf) return;
   if (s.rate) {
-    const pf = curProfile.value;
     // 非 8K 连接下配置里的 2000+ Hz 按 1000 Hz 写入（writableRate），鼠标随后上报的 1000 只是降级，
     // 不能据此改写配置：否则在 1K 接收器下切到这些配置后，换回 8K 接收器时原来的回报率就丢了
-    if (pf && pf.usbrate !== s.rate && state.device?.writableRate(pf.usbrate) !== s.rate) {
+    if (pf.usbrate !== s.rate && state.device?.writableRate(pf.usbrate) !== s.rate) {
       pf.usbrate = s.rate;
       persist();
     }
+    if (mouse) mouse.rate = s.rate;
   }
-  setCurDpi(s.dpiIndex);
+  // 鼠标上的 DPI 键
+  if (s.dpiIndex != null && s.dpiIndex < pf.dpi.length) {
+    setCurDpi(s.dpiIndex);
+    if (mouse) mouse.cur = s.dpiIndex;
+  }
 }
 
 export async function disconnect(reason = 'user') {
@@ -802,6 +900,9 @@ export async function disconnect(reason = 'user') {
   state.device = null;
   state.phase = 'welcome';
   state.pending = 0;
+  state.switchTo = null;
+  syncQueued = false;
+  mouse = null;
   state.applying = false;
   state.progress = { visible: false, pct: 0 };
 }
@@ -822,17 +923,10 @@ export function initHidEvents() {
 
 /* --------------------------------------------------------------- 板载配置 */
 
-/** 点击界面上的配置槽位：把它写进鼠标当前所在的硬件槽位（鼠标没有由软件换槽位的命令） */
-export function requestProfile(index) {
-  if (index === state.curIndex || index < 0 || index > 3 || !state.device) return;
-  return queueProfileLoad(index);
-}
-
-/** 把当前配置完整写入鼠标当前槽位 */
+/** 把当前配置整套写入鼠标（导入 / 复制，对应官方的"应用"） */
 export function writeCurrentProfile() {
-  markWritten();
-  logEvent(`write profile ${state.curIndex + 1} into hw slot ${hwSlot + 1}`);
-  return chunk86(C.apALL, 255, { overlay: true });
+  logEvent(`write the whole profile ${state.curIndex + 1}`);
+  return chunk86(WRITE_ALL, 255, { overlay: true });
 }
 
 export async function exportProfile() {
@@ -864,14 +958,38 @@ export async function importProfile(text) {
     return toast(t.value.importWrongSensor, 'error');
   }
   logEvent(`import profile into ${state.curIndex + 1}`);
+  const ok = await replaceCurrentProfile(p);
+  if (ok) toast(t.value.importOk, 'success');
+}
+
+/** 用 p 替换当前配置并整套写入（网页驱动导出的配置里可能有「配置切换」键，恢复为默认功能） */
+function replaceCurrentProfile(p) {
   const cur = curProfile.value;
   p.name = cur.name;
   p.uid = cur.uid;
   p.inside = true;
+  const dropped = dropSwitchKeys(p);
+  if (dropped.length) logEvent(`Profile Switch on button(s) ${dropped.map((b) => b + 1).join(', ')} restored to default`);
   state.profiles.list[state.curIndex] = p;
   state.firstRun = false;
-  const ok = await writeCurrentProfile();
-  if (ok) toast(t.value.importOk, 'success');
+  return writeCurrentProfile();
+}
+
+/** 把配置 from 的全部设置复制到当前配置并写入鼠标 */
+export async function copyProfile(from) {
+  const src = state.profiles.list[from];
+  if (!src || !curProfile.value || from === state.curIndex || !state.device) return;
+  const ok = await confirmDialog({
+    title: t.value.ovCopyTitle,
+    message: t.value.ovCopyMsg(from + 1, state.curIndex + 1),
+    okText: t.value.ovCopyOk,
+    icon: 'warn',
+  });
+  if (!ok) return;
+  logEvent(`copy profile ${from + 1} into ${state.curIndex + 1}`);
+  const done = await replaceCurrentProfile(src.copy());
+  if (done) toast(t.value.ovCopyDone(from + 1, state.curIndex + 1), 'success');
+  return done;
 }
 
 /* ------------------------------------------------------------------ 按键 */
@@ -881,9 +999,9 @@ export const UI_KEY_NUM = C.dvar.key.length;
 /** 原版 assignKEY：至少保留一个左键 */
 export async function assignKey(btn, kf) {
   const pf = curProfile.value;
-  if (!pf || btn < 0 || btn >= UI_KEY_NUM) return;
-  const otherLeft = pf.key.some((k, i) => i !== btn && k.major === C.fMouse && k.minor === C.fmsCLICK);
-  if (!otherLeft && !(kf.major === C.fMouse && kf.minor === C.fmsCLICK)) {
+  if (!pf || btn < 0 || btn >= UI_KEY_NUM || isSwitchKey(kf)) return;
+  const otherLeft = pf.key.some((k, i) => i !== btn && isLeftKey(k));
+  if (!otherLeft && !isLeftKey(kf)) {
     const ok = await confirmDialog({
       title: t.value.leftGuardTitle,
       message: t.value.leftGuardMsg,
@@ -896,22 +1014,9 @@ export async function assignKey(btn, kf) {
   return setButton(btn, kf);
 }
 
-/** 原版 onButtonSet */
+/** 原版 onButtonSet：只改当前配置（原版把「配置切换」同步到 4 个配置，这个功能已去掉） */
 function setButton(btn, kf) {
-  const pf = curProfile.value;
-  const list = state.profiles.list;
-  if (kf.major === C.fMouse && kf.minor === C.favProfile) {
-    // "配置切换"键同步到全部 4 个板载配置（原版 onButtonSet：只有这一个键会同步）
-    for (let i = 0; i < C.MAX_ONBOARD; i++) if (list[i]) list[i].key[btn] = kf.copy();
-  } else if (pf.key[btn].major === C.fMouse && pf.key[btn].minor === C.favProfile) {
-    // 取消"配置切换"键时，其它配置的该键恢复默认
-    // （原版的跳过条件误写成 i==按键序号，会让某个配置残留切换键，这里按本意修正）
-    for (let i = 0; i < C.MAX_ONBOARD; i++) {
-      if (i === state.curIndex || !list[i]) continue;
-      list[i].key[btn] = C.dvar.key[btn].copy();
-    }
-  }
-  pf.key[btn] = kf.copy();
+  curProfile.value.key[btn] = kf.copy();
   return chunk86(C.apKey, btn, { overlay: kf.major === C.fJuji });
 }
 
@@ -1100,8 +1205,7 @@ export async function factoryReset() {
   state.xySplit = false;
   logEvent(`factory reset profile ${state.curIndex + 1}`);
   pf.reset(C.dvar, state.info.sensor);
-  markWritten();
-  return chunk86(C.apALL | C.apReset, 255, { overlay: true });
+  return chunk86(WRITE_ALL | C.apReset, 255, { overlay: true });
 }
 
 /* ------------------------------------------------------------------- 宏 */

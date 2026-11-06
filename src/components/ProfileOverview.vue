@@ -1,9 +1,9 @@
 <script setup>
-// 板载配置一览：并排显示 4 个配置各自保存的内容（只读，不会写入鼠标）
+// 板载配置一览：并排显示 4 个配置各自保存的内容；可以把其它配置整个复制到当前配置
 import { ref, computed, onBeforeUnmount, watch } from 'vue';
-import { TableProperties, X } from 'lucide-vue-next';
+import { TableProperties, X, Copy } from 'lucide-vue-next';
 import * as C from '../protocol/constants.js';
-import { state } from '../store.js';
+import { state, copyProfile } from '../store.js';
 import { t } from '../i18n.js';
 import { keyLabel } from '../functions.js';
 
@@ -25,6 +25,11 @@ onBeforeUnmount(() => {
   document.removeEventListener('pointerdown', onDocDown, true);
   document.removeEventListener('keydown', onKey);
 });
+
+function copyFrom(p) {
+  open.value = false;
+  copyProfile(p);
+}
 
 const writable = (r) => (!state.info.is8K && C.RATE_8K_ONLY.includes(r) ? 1000 : r);
 const onOff = (v) => (v ? t.value.on : t.value.off);
@@ -104,6 +109,9 @@ const rows = computed(() => {
                 <th v-for="(pf, p) in state.profiles.list.slice(0, 4)" :key="p" :class="{ cur: p === state.curIndex }">
                   {{ t.profileN(p + 1) }}
                   <span v-if="p === state.curIndex" class="badge accent">{{ t.ovCurrent }}</span>
+                  <button v-else class="copy" :disabled="state.pending > 0" :title="t.ovCopyTip(state.curIndex + 1)" @click="copyFrom(p)">
+                    <Copy :size="12" />{{ t.ovCopy }}
+                  </button>
                 </th>
               </tr>
             </thead>
@@ -243,6 +251,31 @@ const rows = computed(() => {
 .ov-table thead th.cur {
   background: color-mix(in srgb, var(--accent) 16%, var(--surface));
   border-radius: var(--r-sm) var(--r-sm) 0 0;
+}
+.copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.copy:hover {
+  background: var(--surface-3);
+  color: var(--text);
+}
+.copy:disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 .sub {
   font-size: 11px;
