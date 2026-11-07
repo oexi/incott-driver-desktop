@@ -94,6 +94,14 @@ export const RATE_8K_ONLY = [2000, 4000, 8000];
 // 休眠时间（秒）
 export const DORMANCY_TIME = [10, 20, 30, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720, 780, 840, 900];
 
+/**
+ * 传感器模式字节（[4,5,x] / 0x84 子序号 5）的最高位：官方新版桌面驱动的「最高性能」，只在 PAW3950 的电竞模式下提供
+ * （固件 1.4.0.3 的 PAW3950 驱动据此换一套传感器参数，IDA：sub_1000F550）。本软件不提供这个开关，但比较时只看低 7 位，
+ * 写入时保留鼠标里原来的最高位，免得把在官方驱动里打开的「最高性能」关掉
+ */
+export const SENSOR_MODE_HIFPS = 0x80;
+export const sensorModeOf = (b) => (b == null ? null : b & 0x7f);
+
 export const DEBOUNCE_MIN = 0;
 export const DEBOUNCE_MAX = 30;
 

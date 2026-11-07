@@ -12,7 +12,8 @@ const SWITCH = 61706;
 const DEFAULT_KEYS = [0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007];
 
 function defaultSlot() {
-  return { rateIx: 0, levels: 6, dpiIx: 1, dpi: [7, 15, 31, 47, 63, 127], sensor: [0, 0, 0, 1, 1], debounce: 8, fire: [3, 10], sleep: 60, keys: DEFAULT_KEYS.slice() };
+  // ext：[3, 档位数, 当前档, a, b, c] 的后三个字节，固件原样存着、0x83 时回给电脑
+  return { rateIx: 0, levels: 6, dpiIx: 1, ext: [0, 0, 0], dpi: [7, 15, 31, 47, 63, 127], sensor: [0, 0, 0, 1, 1], debounce: 8, fire: [3, 10], sleep: 60, keys: DEFAULT_KEYS.slice() };
 }
 
 export class MockHidDevice extends EventTarget {
@@ -84,6 +85,7 @@ export class MockHidDevice extends EventTarget {
       case 3:
         c.levels = b[1];
         c.dpiIx = b[2];
+        c.ext = [b[3], b[4], b[5]];
         break;
       case 4:
         if (b[1] >= 1 && b[1] <= 5) c.sensor[b[1] - 1] = b[2];
@@ -153,6 +155,7 @@ export class MockHidDevice extends EventTarget {
       case 131:
         r[2] = c.levels;
         r[3] = c.dpiIx;
+        [r[4], r[5], r[6]] = c.ext;
         break;
       case 0x84:
         r[2] = sub;

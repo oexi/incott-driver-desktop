@@ -155,7 +155,7 @@ function decodeReply(cmd, d, pid) {
     }
     case 0x84:
       if (sub === 1) return `${LOD_FW[d[2]] ?? '?'} (fw ${d[2]})`;
-      if (sub === 5) return `${SENSOR_MODE[d[2]] ?? '?'} (${d[2]})`;
+      if (sub === 5) return `${SENSOR_MODE[d[2] & 0x7f] ?? '?'}${d[2] & 0x80 ? ' + high fps (最高性能)' : ''} (${d[2]})`;
       return d[2] ? 'on' : 'off';
     case 0x85:
       if (sub === 1) return `${d[2]} ms`;
@@ -263,7 +263,8 @@ function compareWithProfile(raw, pf, dev, { starUnsupported, firstRun }) {
   d = data('132,4');
   row('motion sync', d && !!d[2], pf.motion, true);
   d = data('132,5');
-  row('sensor mode', d && (SENSOR_MODE[d[2]] ?? d[2]), SENSOR_MODE[pf.sensormode] ?? pf.sensormode, true);
+  row('sensor mode', d && (SENSOR_MODE[d[2] & 0x7f] ?? d[2]), SENSOR_MODE[pf.sensormode] ?? pf.sensormode, true);
+  row('high fps (最高性能)', d && !!(d[2] & 0x80), !!pf.hifps, true);
   d = data('133,1');
   row('debounce', d && d[2], pf.debounce, true);
   d = data('133,3');
@@ -316,7 +317,9 @@ function summary({ pid, modelCode, replies, inputSrc, extra = [] }) {
   const L = [];
   const r143 = fromHex(replies[143]?.hex);
   if (modelCode == null && r143 && r143[1] === 0x8f) modelCode = r143[3];
-  const name = modelCode == null ? '(no reply)' : `${modelCode} → ${modelFromCode(modelCode) || 'UNSUPPORTED'}`;
+  const alias = { G29: ' (零29 / Zero 29)', FM23: ' (零39 / Zero 39)' };
+  const dn = modelFromCode(modelCode);
+  const name = modelCode == null ? '(no reply)' : `${modelCode} → ${dn ? dn + (alias[dn] || '') : 'UNSUPPORTED'}`;
   L.push(`model code     ${name}`);
   L.push(`vid:pid        ${hex4(C.VENDOR_ID)}:${hex4(pid)} (${pidKind(pid)})`);
   if (r143) {

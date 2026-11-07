@@ -25,6 +25,7 @@ export class StProfile {
     this.usbrate = 1000;
     this.lod = 1;
     this.sensormode = 1;
+    this.hifps = false; // PAW3950「最高性能」（传感器模式最高位，见 SENSOR_MODE_HIFPS）
     this.fixline = false;
     this.ripple = false;
     this.motion = true;
@@ -46,6 +47,7 @@ export class StProfile {
     t.usbrate = this.usbrate;
     t.lod = this.lod;
     t.sensormode = this.sensormode;
+    t.hifps = this.hifps;
     t.fixline = this.fixline;
     t.ripple = this.ripple;
     t.motion = this.motion;
@@ -64,6 +66,8 @@ export class StProfile {
     s += `usbrate:${this.usbrate};`;
     s += `lod:${this.lod};`;
     s += `sensormode:${this.sensormode};`;
+    // 网页驱动不认这个键（只读它认识的键）；没开时不写，导出的文件和以前一样
+    if (this.hifps) s += `hifps:true;`;
     s += `fixline:${this.fixline};`;
     s += `ripple:${this.ripple};`;
     s += `motion:${this.motion};`;
@@ -93,6 +97,7 @@ export class StProfile {
     if ((s = findValForKeyNumber(str, 'usbrate')) != null) this.usbrate = s;
     if ((s = findValForKeyNumber(str, 'lod')) != null) this.lod = s;
     if ((s = findValForKeyNumber(str, 'sensormode')) != null) this.sensormode = s;
+    if ((s = findValForKeyBool(str, 'hifps')) != null) this.hifps = s;
     if ((s = findValForKeyNumber(str, 'debounce')) != null) this.debounce = s;
     if ((s = findValForKeyNumber(str, 'sleeptime')) != null) this.sleeptime = s;
     if ((s = findValForKeyNumber(str, 'receiverLED')) != null) this.receiverLED = s;

@@ -24,7 +24,9 @@ const zh = {
   connect: '连接设备',
   connecting: '正在连接…',
   reconnect: '重新连接',
-  supported: '支持 G23 / G24 / G23V2 / 零29 / 零39 / Ghero / FM23',
+  supported: '支持 G23 / G24 / G23V2 / 零29 / 零39 / Ghero / G39',
+  // 型号内部名（存储键 / 图片目录）→ 界面上显示的名字，与官方一致
+  modelNames: { G29: '零29', FM23: '零39' },
   connectFailed: '连接失败',
   unsupportedDevice: '型号不受支持或回包无法识别。请点「复制诊断信息」反馈给开发者。',
   noResponse: '设备没有响应。请重新插拔接收器后重试；无线连接时请确认鼠标已开机并与接收器配对。',
@@ -197,6 +199,8 @@ const zh = {
     '传感器发挥最佳性能，但会消耗更多电量',
   ],
   sensorModeHighRate: '回报率 ≥ 2000Hz 时固定为电竞模式',
+  hiFps: '最高性能',
+  hiFpsDesc: '电竞模式下让传感器始终使用高速参数（DPI 7000 以上本来就是），追踪更灵敏，无线续航可能缩短',
   lodTitle: '静默高度 (LOD)',
   lodDesc: '鼠标抬起时，传感器停止追踪的最小高度',
 
@@ -351,7 +355,8 @@ const en = {
   connect: 'Connect',
   connecting: 'Connecting…',
   reconnect: 'Reconnect',
-  supported: 'Supports G23 / G24 / G23V2 / 0-29 / 0-39 / Ghero / FM23',
+  supported: 'Supports G23 / G24 / G23V2 / Zero 29 / Zero 39 / Ghero / G39',
+  modelNames: { G29: 'Zero 29', FM23: 'Zero 39' },
   connectFailed: 'Connection failed',
   unsupportedDevice: 'This model is not supported or its reply was not recognized. Please use "Copy diagnostics" and report it.',
   noResponse: 'The device did not respond. Re-plug the receiver and retry; for wireless, make sure the mouse is on and paired.',
@@ -516,6 +521,8 @@ const en = {
   sensorMode: ['Low Power', 'Standard', 'High Performance'],
   sensorModeDesc: ['Lowest power draw and longest battery life', 'Balanced performance and battery life', 'Best sensor performance, uses more power'],
   sensorModeHighRate: 'Locked to High Performance at ≥ 2000Hz',
+  hiFps: 'High FPS',
+  hiFpsDesc: 'In High Performance mode, keeps the sensor on its high-speed settings at every DPI (they are used from 7000 DPI anyway). More responsive tracking; may shorten wireless battery life',
   lodTitle: 'Lift-off distance',
   lodDesc: 'Height at which the sensor stops tracking when the mouse is lifted',
 

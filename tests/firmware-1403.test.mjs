@@ -205,3 +205,155 @@ test('旧布局的状态包：没有槽位，不会被当成换了槽位；电�
   assert.deepEqual(hid.writes, []);
   await store.disconnect('test');
 });
+
+/* ------------------------------------------------- 旧固件兼容（GHERO 等） */
+
+test('连接：0x8E 有回包但不是 0x8E 的（固件不认识这条命令）也照样连接，在线状态记为未知', async () => {
+  const hid = mouse();
+  const recv = hid.receiveFeatureReport;
+  hid.receiveFeatureReport = async (id) => {
+    const r = await recv(id);
+    if (r.getUint8(1) === 0x8e) return dv([9, 0, 0, 0, 0, 0, 0, 0, 0]); // 不回显
+    return r;
+  };
+  await connect(hid);
+  assert.equal(store.state.device.linkOnline, null);
+  assert.ok(store.state.device.xferLog.some((e) => e.dir === 'NOTE' && /142/.test(e.hex)));
+  await store.disconnect('test');
+});
+
+test('[3,…]：后三个字节照 0x83 读到的写回（旧版 GHERO 驱动在这里放 DPI 指示灯效果），不再写成 0', async () => {
+  const hid = mouse();
+  hid.slots[0].ext = [2, 1, 1];
+  await connect(hid);
+  store.selectDpi(3);
+  await idle();
+  const w = hid.writes.filter((b) => b[0] === 3);
+  assert.deepEqual(w, [[3, 6, 3, 2, 1, 1, 0, 0]]);
+  assert.deepEqual(hid.slots[0].ext, [2, 1, 1], '鼠标里的值没被改掉');
+  await store.disconnect('test');
+});
+
+test('[3,…]：没读到 0x83 时和以前一样写 0', async () => {
+  const dev = new IncottDevice(new MockHidDevice());
+  const sent = [];
+  dev._doTask = async (b) => (sent.push(Array.from(b)), true);
+  dev.sensor = C.SENSOR_3950;
+  await dev.setDif(1, 4);
+  assert.deepEqual(sent, [[3, 4, 1, 0, 0, 0, 0, 0]]);
+});
+
+/* ----------------------------------------------------- 3395 / 3950 的差别 */
+
+test('PAW3395 在 8000 Hz：固件强制关掉 Motion Sync，状态包报告的 0 不记进配置', async () => {
+  const hid = mouse({ sensor: 240 });
+  await connect(hid);
+  const pf = store.curProfile.value;
+  assert.equal(store.state.info.sensor, C.SENSOR_3395);
+  assert.equal(pf.motion, true);
+  hid.cur.rateIx = C.RATE_HW.indexOf(8000);
+  hid.cur.sensor[3] = 0; // 固件在 8000 Hz 清掉了内存里的 Motion Sync
+  hid.emitStatus();
+  await idle();
+  assert.equal(pf.motion, true, 'Motion Sync 设置保留');
+  assert.ok(!hid.writes.some((b) => b[0] === 4 && b[1] === 4), '也没有写回');
+  // 1000 Hz 时报告的 0 才是真的关了
+  hid.cur.rateIx = C.RATE_HW.indexOf(1000);
+  hid.emitStatus();
+  await idle();
+  assert.equal(pf.motion, false);
+  await store.disconnect('test');
+});
+
+test('PAW3950「最高性能」（传感器模式最高位）：连接时读进配置，切换不会关掉它，改传感器模式时保留', async () => {
+  const hid = mouse();
+  for (const sl of hid.slots) sl.sensor[4] = 0x82; // 电竞 + 最高性能（官方新版驱动设的）
+  await connect(hid);
+  const pf = store.curProfile.value;
+  assert.equal(pf.sensormode, 2);
+  assert.equal(pf.hifps, true, '读进了配置');
+  await store.requestProfile(1);
+  await idle();
+  await store.requestProfile(0);
+  await idle();
+  assert.ok(!hid.writes.some((b) => b[0] === 4 && b[1] === 5), '没有写传感器模式');
+  assert.equal(hid.slots[0].sensor[4], 0x82);
+  store.setSensorMode(1);
+  await idle();
+  assert.deepEqual(hid.writes.filter((b) => b[0] === 4 && b[1] === 5), [[4, 5, 0x81, 0, 0, 0, 0, 0]]);
+  assert.equal(hid.slots[0].sensor[4], 0x81);
+  assert.equal(pf.sensormode, 1);
+  // 之后再切换也不会因为最高位"不一样"而重写
+  hid.writes.length = 0;
+  await store.requestProfile(1);
+  await idle();
+  await store.requestProfile(0);
+  await idle();
+  assert.ok(!hid.writes.some((b) => b[0] === 4 && b[1] === 5));
+  await store.disconnect('test');
+});
+
+/* ------------------------------------------------------------ 最高性能开关 */
+
+const { StProfile } = await import('../src/protocol/profile.js');
+
+test('「最高性能」只在 1.4 固件的 PAW3950 上提供：3395、旧固件、0xE1 都不显示', async () => {
+  for (const [sensor, fw, want] of [
+    [241, 'slots', true],
+    [240, 'slots', false],
+    [241, 'legacy', false],
+    [0xe1, 'slots', false],
+  ]) {
+    const hid = mouse({ sensor, fw });
+    await connect(hid);
+    assert.equal(store.hiFpsSupported.value, want, `sensor ${sensor.toString(16)} ${fw}`);
+    // 不支持时 setHiFps 什么也不做
+    store.setHiFps(true);
+    await idle();
+    if (!want) {
+      assert.ok(!store.curProfile.value.hifps);
+      assert.ok(!hid.writes.some((b) => b[0] === 4 && b[1] === 5), '不写传感器模式');
+    }
+    await store.disconnect('test');
+  }
+});
+
+test('「最高性能」开关：写 [4,5,模式|0x80]；8000 Hz（模式固定为电竞）也照样写；每个配置各存一份', async () => {
+  const hid = mouse();
+  for (const sl of hid.slots) sl.sensor[4] = 2;
+  await connect(hid);
+  const pf = store.curProfile.value;
+  assert.equal(pf.hifps, false);
+  store.setHiFps(true);
+  await idle();
+  assert.deepEqual(hid.writes.filter((b) => b[0] === 4 && b[1] === 5), [[4, 5, 0x82, 0, 0, 0, 0, 0]]);
+  assert.equal(hid.slots[0].sensor[4], 0x82);
+  store.setHiFps(false);
+  await idle();
+  assert.equal(hid.slots[0].sensor[4], 0x02);
+
+  // 8000 Hz：以前 2000 Hz 以上不写传感器模式，「最高性能」照样要写
+  hid.writes.length = 0;
+  await store.requestProfile(1);
+  await idle();
+  hid.cur.rateIx = C.RATE_HW.indexOf(8000);
+  hid.emitStatus();
+  await idle();
+  assert.equal(store.curProfile.value.usbrate, 8000);
+  store.setHiFps(true);
+  await idle();
+  assert.deepEqual(hid.writes.filter((b) => b[0] === 4 && b[1] === 5).at(-1), [4, 5, 0x82, 0, 0, 0, 0, 0]);
+  assert.equal(store.state.profiles.list[1].hifps, true);
+  assert.equal(store.state.profiles.list[0].hifps, false, '配置 1 不受影响');
+  await store.disconnect('test');
+});
+
+test('「最高性能」存进配置文件；没开时导出的内容和以前一样', () => {
+  const p = new StProfile('p', C.dvar, C.SENSOR_3950);
+  assert.ok(!p.toText().includes('hifps'), '没开时不写这个键（网页驱动导入不受影响）');
+  p.hifps = true;
+  const q = new StProfile('', C.dvar, C.SENSOR_3950);
+  assert.equal(q.initByText(p.toText()), true);
+  assert.equal(q.hifps, true);
+  assert.equal(p.copy().hifps, true);
+});

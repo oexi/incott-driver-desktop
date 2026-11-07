@@ -32,7 +32,7 @@ linux:
   icon: build/icons
   category: Utility
   synopsis: INCOTT mouse driver
-  description: Desktop driver for INCOTT mice (G23 / G24 / G23V2 / G29 / FM23 / Ghero), ported from the official WebHID web driver.
+  description: Desktop driver for INCOTT mice (G23 / G24 / G23V2 / Zero 29 / Zero 39 / Ghero / G39), ported from the official WebHID web driver.
   maintainer: oexi <oexi@users.noreply.github.com>
   desktop:
     entry:

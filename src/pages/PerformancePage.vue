@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
-import { Crosshair, Plus, Minus, Activity, Cpu, ArrowUpFromLine, Leaf, Scale, Rocket, Lock } from 'lucide-vue-next';
+import { Crosshair, Plus, Minus, Activity, Cpu, ArrowUpFromLine, Leaf, Scale, Rocket, Lock, Zap } from 'lucide-vue-next';
 import * as C from '../protocol/constants.js';
 import {
   state,
@@ -14,6 +14,8 @@ import {
   setRate,
   setSensorMode,
   setLod,
+  setHiFps,
+  hiFpsSupported,
 } from '../store.js';
 import { t } from '../i18n.js';
 
@@ -115,6 +117,9 @@ const highRate = computed(() => effectiveRate.value >= 2000);
 
 /* 传感器模式 */
 const modeIcons = [Leaf, Scale, Rocket];
+// 「最高性能」：只有 1.4.x 固件的 PAW3950 有，只在电竞模式下起作用。和官方新版桌面驱动一样，只看保存的模式：
+// 2000 Hz 以上固件虽然临时用电竞模式，但保存的是标准 / 节能时不显示（回到 1000 Hz 以下它就不起作用了）
+const showHiFps = computed(() => hiFpsSupported.value && pf.value?.sensormode === 2);
 
 /* LOD */
 const lods = computed(() => C.lodOptions(state.info.sensor));
@@ -256,6 +261,14 @@ function fmtRate(r) {
           <span class="mn">{{ name }}</span>
           <span class="md">{{ t.sensorModeDesc[m] }}</span>
         </button>
+      </div>
+      <div v-if="showHiFps" class="hifps">
+        <Zap :size="18" class="hi-ic" :class="{ on: pf.hifps }" />
+        <div class="hi-txt">
+          <div class="hi-name">{{ t.hiFps }}</div>
+          <div class="hi-desc">{{ t.hiFpsDesc }}</div>
+        </div>
+        <div class="switch" :class="{ on: pf.hifps }" role="switch" :aria-checked="!!pf.hifps" :title="t.hiFps" @click="setHiFps(!pf.hifps)"></div>
       </div>
     </section>
   </div>
@@ -510,6 +523,39 @@ function fmtRate(r) {
 }
 .card-desc :deep(svg) {
   vertical-align: -1px;
+}
+.hifps {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 12px 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+}
+.hi-ic {
+  flex: none;
+  color: var(--text-3);
+}
+.hi-ic.on {
+  color: var(--accent);
+}
+.hi-txt {
+  flex: 1;
+  min-width: 0;
+}
+.hi-name {
+  font-weight: 700;
+  font-size: 14px;
+}
+.hi-desc {
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.hifps .switch {
+  flex: none;
 }
 @media (max-width: 1180px) {
   .grid2 {

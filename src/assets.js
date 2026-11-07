@@ -2,6 +2,7 @@
 
 import { computed, ref } from 'vue';
 import { state, settings } from './store.js';
+import { t } from './i18n.js';
 
 const KNOWN = ['G23', 'G24', 'G23V2', 'G29', 'FM23', 'Ghero'];
 
@@ -42,6 +43,7 @@ export const productImage = computed(() => {
   return shell ? `./products/${m}-${shell}.webp` : `./products/${m}.webp`;
 });
 
+/** 界面上显示的型号名：零29 / 零39 的内部名是 G29 / FM23（见 modelFromCode） */
 export function displayName(devname) {
-  return devname ? `INCOTT ${devname}` : 'INCOTT';
+  return devname ? `INCOTT ${t.value.modelNames?.[devname] ?? devname}` : 'INCOTT';
 }
