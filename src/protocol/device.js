@@ -72,6 +72,8 @@ export function modelFromCode(code) {
     case 3:
     case 5:
       return 'G24';
+    // 6 / 9 的 G29 / FM23 是网页驱动代码里的内部名，网页驱动界面、官方新版桌面驱动和升级包都叫零29 / 零39。
+    // 内部名还用作本地配置的存储键和图片目录，保持不变；界面上显示的名字见 i18n 的 modelNames
     case 6:
       return 'G29';
     // 12 / 13 是官方新版桌面驱动 incott-app 1.4.0.3 新增的（网页驱动不认）：12 按 G23V2，13 是 G39
@@ -342,6 +344,7 @@ export class IncottDevice extends EventTarget {
     this.sensor = 0;
     this.devname = '';
     this.curOnBoard = null;
+    this.dpiExtra = null; // 0x83 回包里 [3,…] 的后三个字节（见 _keepDpiExtra）
   }
 
   get isOpen() {
@@ -468,8 +471,14 @@ export class IncottDevice extends EventTarget {
       throw new Error(this.replies[143] ? 'UNSUPPORTED_DEVICE' : 'NO_RESPONSE');
     }
     if (!(await this.readMatchInfo())) {
-      await this.close();
-      throw new Error('READ_FAILED');
+      // 有回包、只是不是 0x8E 的（固件不认识这条命令；旧版 GHERO 专用官方驱动从不发它）：照样连接，在线状态记为未知。
+      // 一个回包都没有（超时 / 读写错误）才算读取失败，免得连上一个根本不响应的设备
+      if (!this.replies[142]) {
+        await this.close();
+        throw new Error('READ_FAILED');
+      }
+      this.linkOnline = null;
+      this._log('NOTE', `142 (8E 01) not understood, connecting anyway: ${this.replies[142].hex}`);
     }
     this.online = true;
     await this.readInfo();
@@ -522,7 +531,17 @@ export class IncottDevice extends EventTarget {
   async readDif() {
     const r = await this._fromData(131);
     if (!r) return null;
+    this._keepDpiExtra(r);
     return [r[2], r[1]]; // [当前档位, 档位数]
+  }
+
+  /**
+   * 0x83 回包 r[3..5] 是 [3, 档位数, 当前档, a, b, c] 后三个字节里写进去的值。旧版 GHERO 专用官方驱动用 a 设 DPI 指示灯效果
+   * （0 常亮 / 1 呼吸 / 2 关），b、c 默认 1；官方新版桌面驱动先读出来，写的时候原样带上（sub_44A390 → sub_44A300）。
+   * 固件 1.4.0.3（IDA）只是存起来、读的时候回给电脑，不用于别的。这里也照原样带上，不再写成 0。
+   */
+  _keepDpiExtra(r) {
+    if (r && r.length >= 6) this.dpiExtra = [r[3], r[4], r[5]];
   }
 
   /**
@@ -669,6 +688,7 @@ export class IncottDevice extends EventTarget {
     if (r && (r[1] & 15) <= 6) out.rate = RATE_HW[r[1] & 15];
     r = await read(0x83);
     if (r) [out.levels, out.cur] = [r[1], r[2]];
+    this._keepDpiExtra(r);
     for (let i = 0; i < dpiCount; i++) {
       r = await readSub(0x82, i);
       if (r) star.push(r[2], r[3]);
@@ -736,7 +756,9 @@ export class IncottDevice extends EventTarget {
   setDif(ix, levels) {
     const s = getStDPI(this.sensor);
     if (!s || ix < 0 || ix >= s.dpi.length) return Promise.resolve(false);
-    return this._doTask(new Uint8Array([3, levels, ix, 0, 0, 0, 0, 0]));
+    // 后三个字节照读到的写回（见 _keepDpiExtra）；没读到时和以前一样写 0
+    const [a, b, c] = this.dpiExtra || [0, 0, 0];
+    return this._doTask(new Uint8Array([3, levels, ix, a, b, c, 0, 0]));
   }
 
   setLD(t) {
@@ -884,9 +906,12 @@ export class IncottDevice extends EventTarget {
     }
     progress((pg += 5));
 
-    if (flag & apSensorMode && rate < 2000) {
+    // sensorModeAnyRate：1.4 固件的 PAW3950 在 2000 Hz 以上也写（模式由固件固定为电竞，「最高性能」照样生效）
+    if (flag & apSensorMode && (rate < 2000 || ctx.sensorModeAnyRate)) {
       await sleep(waitT);
-      if (!(await this.setSM(pf.sensormode))) return fail(`sensor mode ${pf.sensormode}`);
+      // 最高位（PAW3950「最高性能」）：支持时按配置，不支持时按鼠标里原来的带上，见 SENSOR_MODE_HIFPS
+      const sm = pf.sensormode | ((ctx.sensorModeHi || 0) & 0x80);
+      if (!(await this.setSM(sm))) return fail(`sensor mode ${sm}`);
     }
     progress((pg += 5));
 

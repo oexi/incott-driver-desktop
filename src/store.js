@@ -95,6 +95,12 @@ loadMacros(state.macros);
 
 export const curProfile = computed(() => state.profiles.list[state.curIndex] || null);
 export const sensorCfg = computed(() => C.getStDPI(state.info.sensor) || C.dvar.stDPI[0]);
+/**
+ * 「最高性能」（官方新版桌面驱动 str_Highfps）：只有 1.4.x 固件的 PAW3950 支持（IDA：传感器驱动按传感器模式最高位换参数；
+ * 1.3.8 的 3950 固件和所有 3395 固件都没有）。1.4.x 用板载配置是否可用来判断（连接时的槽位探测）。
+ * 不支持的固件收到带最高位的模式值可能会配置错传感器，所以不支持时既不显示也不写
+ */
+export const hiFpsSupported = computed(() => state.hwSlots && state.info.sensor === C.SENSOR_3950);
 /** 实际写入鼠标的回报率：非 8K 连接下配置里的 2000+ Hz 按 1000 Hz（与 IncottDevice.writableRate 一致） */
 export const effectiveRate = computed(() => {
   const r = curProfile.value?.usbrate || 0;
@@ -589,7 +595,7 @@ function effectiveKey(pf, i) {
 const blankMouse = () => ({ rate: null, levels: null, cur: null, dpi: [], lod: null, ripple: null, fixline: null, motion: null, sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null });
 
 /** 写入成功后更新 mouse：与 device.apply 写入的项目一一对应 */
-function trackWrite(m, pf, flag, index, dev) {
+function trackWrite(m, pf, flag, index, dev, { sensorModeHi = 0, sensorModeAnyRate = false } = {}) {
   if (flag & C.apKey) {
     pf.key.forEach((_, i) => {
       if (index !== 255 && i !== index) return;
@@ -611,7 +617,8 @@ function trackWrite(m, pf, flag, index, dev) {
   }
   const rate = dev.writableRate(pf.usbrate);
   if (flag & C.apRate) m.rate = rate;
-  if (flag & C.apSensorMode && rate < 2000) m.sensormode = pf.sensormode;
+  // 与 device.apply 写的字节一致（含最高位：PAW3950「最高性能」）
+  if (flag & C.apSensorMode && (rate < 2000 || sensorModeAnyRate)) m.sensormode = pf.sensormode | (sensorModeHi & C.SENSOR_MODE_HIFPS);
   if (flag & C.apLod) m.lod = C.lodToHw(pf.lod, dev.sensor);
   if (flag & C.apSensor) {
     if (index & 1) m.ripple = pf.ripple ? 1 : 0;
@@ -626,7 +633,10 @@ function trackWrite(m, pf, flag, index, dev) {
 /** dev.apply 的包装：记下写进鼠标的内容；写入失败时鼠标里是什么就不确定了 */
 async function applyToMouse(dev, pf, flag, index, opts = {}) {
   // profileIndex: null —— 不写 [6,9,序号]
-  const ok = await dev.apply(pf, flag, index, { macros: state.macros, ...opts, profileIndex: null });
+  // 传感器模式的最高位（PAW3950「最高性能」）：支持时按配置写；不支持时照鼠标（当前槽位）里原来的带上，免得关掉官方驱动开的
+  const sensorModeAnyRate = hiFpsSupported.value;
+  const sensorModeHi = sensorModeAnyRate ? (pf.hifps ? C.SENSOR_MODE_HIFPS : 0) : (mouse?.sensormode ?? 0) & C.SENSOR_MODE_HIFPS;
+  const ok = await dev.apply(pf, flag, index, { macros: state.macros, ...opts, profileIndex: null, sensorModeHi, sensorModeAnyRate });
   if (flag & C.apKey) {
     pf.key.forEach((k, i) => {
       if (index !== 255 && i !== index) return;
@@ -639,7 +649,7 @@ async function applyToMouse(dev, pf, flag, index, opts = {}) {
   else {
     // 整套写成功：不管之前知不知道，鼠标里现在就是这个配置
     if (!mouse && (flag & WRITE_ALL) === WRITE_ALL && index === 255) mouse = blankMouse();
-    if (mouse) trackWrite(mouse, pf, flag, index, dev);
+    if (mouse) trackWrite(mouse, pf, flag, index, dev, { sensorModeHi, sensorModeAnyRate });
   }
   return ok;
 }
@@ -675,7 +685,10 @@ export function mouseDiff(pf, raw, dev) {
   if (neq(raw.levels, pf.dpi.length) || neq(raw.cur, Math.min(pf.curDpi, pf.dpi.length - 1))) flag |= C.apDpiLevel;
   const rate = dev.writableRate(pf.usbrate);
   if (neq(raw.rate, rate)) flag |= C.apRate;
-  if (rate < 2000 && neq(raw.sensormode, pf.sensormode)) flag |= C.apSensorMode;
+  if (hiFpsSupported.value) {
+    // 1.4 固件的 PAW3950：模式和「最高性能」一起比，回报率多少都写
+    if (neq(raw.sensormode, pf.sensormode | (pf.hifps ? C.SENSOR_MODE_HIFPS : 0))) flag |= C.apSensorMode;
+  } else if (rate < 2000 && neq(C.sensorModeOf(raw.sensormode), pf.sensormode)) flag |= C.apSensorMode;
   if (neq(raw.lod, C.lodToHw(pf.lod, dev.sensor))) flag |= C.apLod;
   if (neq(raw.debounce, Math.min(pf.debounce, C.DEBOUNCE_MAX))) flag |= C.apDebounce;
   if (neq(raw.sleeptime, Math.max(pf.sleeptime, 10))) flag |= C.apSleepTime;
@@ -749,9 +762,14 @@ function adoptFromMouse(pf, raw, dev) {
       changed.add(f);
     }
   }
-  if (raw.sensormode != null && raw.sensormode <= 2 && dev.writableRate(pf.usbrate) < 2000 && raw.sensormode !== pf.sensormode) {
-    pf.sensormode = raw.sensormode;
+  const sm = C.sensorModeOf(raw.sensormode);
+  if (sm != null && sm <= 2 && dev.writableRate(pf.usbrate) < 2000 && sm !== pf.sensormode) {
+    pf.sensormode = sm;
     changed.add('sensormode');
+  }
+  if (hiFpsSupported.value && raw.sensormode != null && !!(raw.sensormode & C.SENSOR_MODE_HIFPS) !== !!pf.hifps) {
+    pf.hifps = !!(raw.sensormode & C.SENSOR_MODE_HIFPS);
+    changed.add('hifps');
   }
   if (raw.debounce != null && raw.debounce !== Math.min(pf.debounce, C.DEBOUNCE_MAX)) {
     pf.debounce = raw.debounce;
@@ -1242,7 +1260,10 @@ function adoptStatusExtras(pf, s, dev) {
     }
     if (lod != null && mouse) mouse.lod = s.lod;
   }
-  if (s.motion != null) {
+  // PAW3395 在 8000 Hz 下固件强制关掉 Motion Sync（只清内存里的，保存的设置不变，IDA：传感器驱动 sub_1000F550），
+  // 这时状态包报告的 0 不是用户改的，不能记进配置
+  const motionForced = dev.sensor === C.SENSOR_3395 && s.rate === 8000;
+  if (s.motion != null && !motionForced) {
     if (!!s.motion !== !!pf.motion) {
       out.push(`motion ${pf.motion ? 1 : 0}→${s.motion}`);
       pf.motion = !!s.motion;
@@ -1518,6 +1539,14 @@ export function setSensorMode(mode) {
   if (!pf) return;
   pf.sensormode = mode;
   if (effectiveRate.value < 2000) chunk86(C.apSensorMode, 0);
+}
+
+/** PAW3950「最高性能」（只在 hiFpsSupported 时提供） */
+export function setHiFps(on) {
+  const pf = curProfile.value;
+  if (!pf || !hiFpsSupported.value || !!pf.hifps === !!on) return;
+  pf.hifps = !!on;
+  chunk86(C.apSensorMode, 0);
 }
 
 export function setLod(lod) {
