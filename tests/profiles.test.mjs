@@ -1,5 +1,5 @@
-// 配置（与官方桌面驱动 GamingMouse.exe 相同）：4 套配置保存在电脑上，点击即切换并写进鼠标；不跟随状态包里的槽位，
-// 不发 [6,9,序号]，不支持「配置切换」键。改进：只写不一样的项（软件记着鼠标里的设置，不用先读）、
+// 电脑端配置（软件不能切换硬件槽位的旧固件，与官方旧版桌面驱动 GamingMouse.exe 相同）：4 套配置保存在电脑上，
+// 点击即切换并写进鼠标；不跟随状态包里的槽位，不发 [6,9,序号]，不支持「配置切换」键。板载配置见 slots.test.mjs。改进：只写不一样的项（软件记着鼠标里的设置，不用先读）、
 // 没写完的下次连接补写、连接时只读进软件外改过的项、连点只写最后一个。
 // 模拟鼠标与实测 G23V2 一致：4 个硬件槽位各存回报率 / DPI / 传感器 / 消抖 / 休眠，按键与接收器灯效共用。
 
@@ -48,9 +48,10 @@ const SWITCH = 61706; // 「配置切换」的按键码
 const CODE_A = keyToHw(new C.KeyInfo(C.fKeyboard, 0x04), 0);
 const hwDpi = (dpi) => C.getHwForDpi(dpi, C.SENSOR_3950);
 
-/** 模拟鼠标（PAW3950）：记录写命令与读次数；model 为型号码（2 = G23，1 = Ghero）；is8K = false 时为 1K 接收器 */
-function mouse({ is8K = true, model = 2 } = {}) {
-  const hid = new MockHidDevice();
+/** 模拟鼠标（PAW3950）：记录写命令与读次数；model 为型号码（2 = G23，1 = Ghero）；is8K = false 时为 1K 接收器；
+ *  fw = 'legacy'：软件不能换槽位的旧固件（本文件测的电脑端配置） */
+function mouse({ is8K = true, model = 2, fw = 'legacy' } = {}) {
+  const hid = new MockHidDevice({ fw });
   // 状态包由测试手动发送，不用模拟设备的定时器（否则测试失败时进程不会退出）
   const open = hid.open.bind(hid);
   hid.open = async () => {

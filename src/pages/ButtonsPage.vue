@@ -3,9 +3,9 @@ import { ref, computed, watch } from 'vue';
 import { MousePointerClick, Music, Keyboard, Command, Flame, Workflow, RotateCcw, ArrowLeftRight, Search } from 'lucide-vue-next';
 import * as C from '../protocol/constants.js';
 import { vkPOS, keycodeToHid, hidToKeyname } from '../protocol/keytable.js';
-import { state, curProfile, assignKey, swapLeftRight, isLRSwapped, UI_KEY_NUM } from '../store.js';
+import { state, curProfile, assignKey, swapLeftRight, isLRSwapped, UI_KEY_NUM, canSwitchKey } from '../store.js';
 import { t, i18n } from '../i18n.js';
-import { MOUSE_FUNCS, MEDIA_FUNCS, keyLabel, keyCategory, keyboardGroups } from '../functions.js';
+import { MOUSE_FUNCS, PROFILE_FUNC, MEDIA_FUNCS, keyLabel, keyCategory, keyboardGroups } from '../functions.js';
 import { mouseMapImage } from '../assets.js';
 
 const sel = ref(0);
@@ -185,6 +185,17 @@ const swapped = computed(() => isLRSwapped());
         <div v-if="tab === 'mouse'" class="tiles">
           <button v-for="[m, k] in MOUSE_FUNCS" :key="m" class="tile" :class="{ on: isCur(C.fMouse, m) }" @click="assignMouse(m)">
             {{ t.fn[k] }}
+          </button>
+          <!-- 板载配置才有：固件把它存进全部 4 个槽位；和官方一样左 / 右键不行 -->
+          <button
+            v-if="state.hwSlots"
+            class="tile"
+            :class="{ on: isCur(C.fMouse, PROFILE_FUNC[0]) }"
+            :disabled="!canSwitchKey(sel)"
+            :title="canSwitchKey(sel) ? t.onboardSlotsTip : t.switchKeyNotHere"
+            @click="assignMouse(PROFILE_FUNC[0])"
+          >
+            {{ t.fn[PROFILE_FUNC[1]] }}
           </button>
         </div>
 
@@ -455,6 +466,13 @@ const swapped = computed(() => isLRSwapped());
   border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent);
+}
+.tile:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none;
+  border-color: var(--line);
+  background: var(--surface-2);
 }
 .search {
   display: flex;

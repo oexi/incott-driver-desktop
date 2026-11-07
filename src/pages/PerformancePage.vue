@@ -83,12 +83,26 @@ function toggleXY() {
     commit();
   }
 }
-function nudge(axis, delta) {
+function nudge(axis, sign) {
   const r = axis === 'x' ? dx : dy;
-  r.value = Math.max(st.value.min, Math.min(st.value.max, (Number(r.value) || 0) + delta));
+  const v = Number(r.value) || 0;
+  // 按表取上一档 / 下一档（步进 50 / 100，E2 传感器 10000 以上是 100）
+  const list = st.value.dpiUI;
+  const next = sign > 0 ? list.find((d) => d > v) ?? st.value.max : [...list].reverse().find((d) => d < v) ?? st.value.min;
+  r.value = next;
+  if (!state.xySplit) dy.value = dx.value;
   commit();
 }
-const presets = [400, 800, 1200, 1600, 3200, 6400];
+const presets = computed(() => [400, 800, 1200, 1600, 3200, 6400].filter((p) => p >= st.value.min && p <= st.value.max));
+// 只有 PAW3395 / PAW3950 能分开设 X / Y（与官方新版桌面驱动一致）
+const canSplit = computed(() => st.value.xy !== false);
+watch(
+  canSplit,
+  (v) => {
+    if (!v) state.xySplit = false;
+  },
+  { immediate: true }
+);
 function preset(v) {
   dx.value = v;
   if (!state.xySplit) dy.value = v;
@@ -151,38 +165,40 @@ function fmtRate(r) {
         <div class="ed-head">
           <span class="label">{{ t.dpiEditing }} {{ editIx + 1 }}</span>
           <div class="spacer"></div>
-          <span class="label">{{ t.dpiXY }}</span>
-          <div class="switch" :class="{ on: state.xySplit }" @click="toggleXY"></div>
+          <template v-if="canSplit">
+            <span class="label">{{ t.dpiXY }}</span>
+            <div class="switch" :class="{ on: state.xySplit }" @click="toggleXY"></div>
+          </template>
         </div>
 
         <div class="axis">
           <span class="ax">{{ state.xySplit ? t.dpiX : 'DPI' }}</span>
-          <button class="btn sm icon" @click="nudge('x', -50)"><Minus :size="13" /></button>
+          <button class="btn sm icon" @click="nudge('x', -1)"><Minus :size="13" /></button>
           <input
             v-model.number="dx"
             class="range"
             type="range"
             :min="st.min"
             :max="st.max"
-            step="50"
+            :step="st.step"
             :style="{ '--pct': pct(dx) }"
             @input="!state.xySplit && (dy = dx)"
             @change="commit"
           />
-          <button class="btn sm icon" @click="nudge('x', 50)"><Plus :size="13" /></button>
-          <input v-model.number="dx" class="input num" type="number" :min="st.min" :max="st.max" step="50" @change="commit" @keydown.enter="$event.target.blur()" />
+          <button class="btn sm icon" @click="nudge('x', 1)"><Plus :size="13" /></button>
+          <input v-model.number="dx" class="input num" type="number" :min="st.min" :max="st.max" :step="st.step" @change="commit" @keydown.enter="$event.target.blur()" />
         </div>
         <div v-if="state.xySplit" class="axis">
           <span class="ax">{{ t.dpiY }}</span>
-          <button class="btn sm icon" @click="nudge('y', -50)"><Minus :size="13" /></button>
-          <input v-model.number="dy" class="range" type="range" :min="st.min" :max="st.max" step="50" :style="{ '--pct': pct(dy) }" @change="commit" />
-          <button class="btn sm icon" @click="nudge('y', 50)"><Plus :size="13" /></button>
-          <input v-model.number="dy" class="input num" type="number" :min="st.min" :max="st.max" step="50" @change="commit" @keydown.enter="$event.target.blur()" />
+          <button class="btn sm icon" @click="nudge('y', -1)"><Minus :size="13" /></button>
+          <input v-model.number="dy" class="range" type="range" :min="st.min" :max="st.max" :step="st.step" :style="{ '--pct': pct(dy) }" @change="commit" />
+          <button class="btn sm icon" @click="nudge('y', 1)"><Plus :size="13" /></button>
+          <input v-model.number="dy" class="input num" type="number" :min="st.min" :max="st.max" :step="st.step" @change="commit" @keydown.enter="$event.target.blur()" />
         </div>
         <div class="presets">
           <button v-for="p in presets" :key="p" class="chip" :class="{ on: dx === p && (!state.xySplit || dy === p) }" @click="preset(p)">{{ p }}</button>
           <span class="spacer"></span>
-          <span class="muted range-hint num">{{ st.min }} – {{ st.max }} · step 50</span>
+          <span class="muted range-hint num">{{ st.min }} – {{ st.max }} · step {{ st.step }}</span>
         </div>
       </div>
     </section>

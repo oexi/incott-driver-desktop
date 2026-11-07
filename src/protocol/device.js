@@ -8,8 +8,7 @@ import {
   KeyInfo,
   RATE_HW,
   RATE_8K_ONLY,
-  SENSOR_3395,
-  SENSOR_3950,
+  sensorFromByte,
   dvar,
   getStDPI,
   getHwForDpi,
@@ -75,11 +74,15 @@ export function modelFromCode(code) {
       return 'G24';
     case 6:
       return 'G29';
+    // 12 / 13 是官方新版桌面驱动 incott-app 1.4.0.3 新增的（网页驱动不认）：12 按 G23V2，13 是 G39
     case 8:
+    case 12:
     case 14:
       return 'G23V2';
     case 9:
       return 'FM23';
+    case 13:
+      return 'G39';
     default:
       return '';
   }
@@ -185,18 +188,62 @@ export function hwToKey(code) {
   return null; // 宏 / 火力键等参数无法从按键码还原
 }
 
-/** 解析设备主动上报的状态（原版 irServer） */
-export function parseInputReport(data) {
-  const b0 = data.getUint8(0);
-  const b1 = data.getUint8(1);
-  const b2 = data.getUint8(2);
-  const rate = b1 & 15;
+/**
+ * 状态包（输入报告 9）有两种布局，按内容判断（layout 为这次连接之前判断出的，可为 null）：
+ *
+ * 紧凑布局（原版网页驱动 irServer；固件 1.3.8 / 1.4.0.3 都是，IDA：sub_1000E410 / sub_1000E364）：
+ *   d0 电量 | 充电 << 7   d1 回报率 | DPI 档 << 4   d2 消抖 | 槽位 << 6（1.3.8 没有槽位，最高位恒 0）
+ *   d3 X >> 8 | (Y >> 8) << 4   d4 X 低字节   d5 Y 低字节（当前档的 DPI 硬件值）   d6 Motion Sync | LOD << 4
+ *   官方新版桌面驱动只认这种。
+ * 更早的固件（旧版官方桌面驱动 sub_434610；1K 接收器收到 5 字节状态时原样转发，issue #11）：
+ *   d0 充电（非 0）  d1 电量  d2 DPI 档  d3 回报率，其余为 0。
+ *
+ * 判断：两种都说得通时，紧凑布局意味着电量只有 0–1%（不可能还在正常用），所以按旧布局；
+ * 只有一种说得通时据此定下来，后面说不准的状态包沿用。
+ */
+export function statusLayoutOf(d, layout = null) {
+  const packed = (d[0] & 127) <= 100 && (d[1] & 15) <= 6 && d[1] >> 4 <= 5 && (d[2] & 63) <= 30;
+  const old = d[0] <= 1 && d[1] <= 100 && d[2] <= 5 && d[3] <= 6 && !d[5] && !d[6];
+  if (packed && !old) return { layout: 'packed', sure: true };
+  if (old && !packed) return { layout: 'old', sure: true };
+  return { layout: layout || (old ? 'old' : 'packed'), sure: false };
+}
+
+/** 解析设备主动上报的状态（原版 irServer）；layout 见 statusLayoutOf */
+export function parseInputReport(data, layout = null) {
+  const d = Array.from({ length: 8 }, (_, i) => (i < data.byteLength ? data.getUint8(i) : 0));
+  const lay = statusLayoutOf(d, layout);
+  if (lay.layout === 'old') {
+    return {
+      layout: 'old',
+      layoutSure: lay.sure,
+      profileIndex: null,
+      charging: d[0] !== 0,
+      power: Math.min(d[1], 100),
+      rate: d[3] <= 6 ? RATE_HW[d[3]] : null,
+      dpiIndex: d[2],
+      debounce: null,
+      lod: null,
+      motion: null,
+    };
+  }
+  const rate = d[1] & 15;
+  const lod = d[6] >> 4;
+  const motion = d[6] & 15;
   return {
-    profileIndex: (b2 & 192) >> 6,
-    charging: (b0 & 128) !== 0,
-    power: Math.floor((b0 & 127) / 10) * 10,
+    layout: 'packed',
+    layoutSure: lay.sure,
+    profileIndex: (d[2] & 192) >> 6,
+    charging: (d[0] & 128) !== 0,
+    // 固件已经做了平滑（每 3 次采样一次、连续 5 次不同才改，IDA：sub_1000C0B4），直接显示
+    power: Math.min(d[0] & 127, 100),
     rate: rate <= 6 ? RATE_HW[rate] : null,
-    dpiIndex: (b1 & 240) >> 4,
+    dpiIndex: (d[1] & 240) >> 4,
+    debounce: d[2] & 63,
+    lod: lod <= 2 ? lod : null, // 固件 LOD 值（0 = 1 mm，1 = 2 mm，2 = 0.7 mm）
+    motion: motion <= 1 ? motion : null,
+    dpiX: d[4] | ((d[3] & 15) << 8),
+    dpiY: d[5] | ((d[3] >> 4) << 8),
   };
 }
 
@@ -247,6 +294,7 @@ export class IncottDevice extends EventTarget {
     this.lastHidError = null;
     this.applyError = null; // 最近一次 apply 失败在哪一步
     this.linkOnline = null; // 142（8E 01）回包 r[6]：接收器报告的鼠标在线标志（原版读了但被覆盖，含义待实机确认）
+    this.statusLayout = null; // 状态包布局：'packed' | 'old'（见 statusLayoutOf）
     this._macroPacket = 0;
     this._onInput = (e) => {
       if (e.device !== this.hid) return;
@@ -256,7 +304,9 @@ export class IncottDevice extends EventTarget {
       this._push(this.inputLog, INPUT_LOG_MAX, { t: Date.now() - this._t0, dir: `in#${e.reportId}`, hex: toHex(e.data) });
       // 官方驱动的读线程只处理 Report ID 9（GamingMouse.exe sub_446200），其它报告不是状态包
       if (e.reportId !== REPORT_ID) return;
-      this.dispatchEvent(new CustomEvent('status', { detail: parseInputReport(e.data) }));
+      const s = parseInputReport(e.data, this.statusLayout);
+      if (s.layoutSure) this.statusLayout = s.layout;
+      this.dispatchEvent(new CustomEvent('status', { detail: s }));
     };
   }
 
@@ -456,8 +506,7 @@ export class IncottDevice extends EventTarget {
     }
     this.is8KReceiver = r[3] === 2;
     const i = this.iswireless ? 5 : 4;
-    if (r[i] === 241) this.sensor = SENSOR_3950;
-    else this.sensor = SENSOR_3395; // 240 或未知
+    this.sensor = sensorFromByte(r[i]);
     return true;
   }
 
@@ -480,6 +529,8 @@ export class IncottDevice extends EventTarget {
    * 137（0x89）设备信息。原版把它当成和状态包一样的布局（r[0] 电量、r[1] 回报率），但 r[0] 其实是命令回显。
    * 实际布局以官方桌面驱动为准（GamingMouse.exe sub_4455E0 / sub_4344A0），与实测 G23V2 回包一致：
    * r[1] 电量  r[2] 充电状态  r[3] 回报率  r[4] 当前 DPI 档  r[7] 固定 0x5A（官方驱动据此判断回包有效）
+   * 固件 1.4.0.3（IDA）：有线时由鼠标实时回答；接收器不转发 0x89，用最近一个状态包里的电量 / DPI 档回答，
+   * 收到过状态包才有 r[7] = 0x5A。r[2] 其实是连接方式（有线 2 / 1K 接收器 1 / 8K 接收器 0），不是充电状态。
    */
   async readInfo() {
     const r = await this._fromData(137);
@@ -489,9 +540,9 @@ export class IncottDevice extends EventTarget {
     if (di != null && di.length <= 0) return false;
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
-    // 充电状态的取值含义未确认，不据此显示充电；电量与状态包一样按 10% 取整。
+    // r[2] 不是充电状态，不据此显示充电。电量和状态包一样显示原值（固件已平滑）。
     // 实测 G23V2 无线（8K 接收器）时整包除 0x5A 外全为 0，此时电量未知，等待状态包
-    if (r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = Math.floor(r[1] / 10) * 10;
+    if (r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = r[1];
     this.curDpi = di != null ? di[0] : -1;
     this.dpiLevels = di != null ? di[1] : -1;
     return true;
@@ -505,6 +556,71 @@ export class IncottDevice extends EventTarget {
 
   readProfileIndex() {
     return this.readKEY(9);
+  }
+
+  /* ---------------------------------------------------------- 硬件槽位 */
+  // 1.4.x 固件（升级包 1.4.0.3，IDA 分析）有 4 个硬件槽位，官方新版桌面驱动 incott-app 1.4.0.3 用下面两条命令：
+  //   · [0x85,6] 读当前槽位。有线回包 [0x85, 槽位]（不回显子序号）；经 1K / 8K 接收器时接收器原样转发鼠标的无线回包，
+  //     是 [0x85, 6, 槽位]。官方驱动两种情况都取 r[1]，无线时总读成槽位 0。
+  //   · [5,6,N] 切到槽位 N：鼠标存下槽位号，重新载入这个槽位的全部设置，并主动发一个状态包。
+  // 更早的固件（例如 1.3.8）没有槽位：有线时 [0x85,6] / [0x85,7] 回全 0；无线时照样回显子序号，后面跟着上一条
+  // 无线回包留下的字节——所以无线下要先做一次已知结果的读取，确认读到的不是残留。
+
+  /** 读当前硬件槽位（0–3）；固件不支持或读不到时为 null */
+  async readHwSlot() {
+    if (!this.iswireless) {
+      const r = await this._retry(() => this._fromData(0x85, 6));
+      return r && r[1] <= 3 ? r[1] : null;
+    }
+    // 无线：先读一项（回包第 2 字节就是它在鼠标无线缓冲区里留下的值），再读槽位；读到的和这个值相同时可能只是残留，
+    // 换一个值不同的项再试。真支持的固件两次都回同一个槽位，不支持的会跟着残留变
+    const seen = new Set();
+    for (const [cmd, sub] of [[0x85, 1], [0x85, 3], [0x84, 1], [0x84, 5], ...[0, 1, 2, 3, 4, 5].map((k) => [0x86, k])]) {
+      const p = await this._retry(() => this._readSub(cmd, sub));
+      if (!p || seen.has(p[2])) continue;
+      const r = await this._retry(() => this._readSub(0x85, 6));
+      if (!r) return null;
+      if (r[2] !== p[2]) return r[2] <= 3 ? r[2] : null;
+      seen.add(p[2]);
+      if (seen.size >= 2) return null; // 两次都跟着残留变：固件不认识这条命令
+    }
+    return null;
+  }
+
+  /**
+   * 固件能否由软件切换硬件槽位：能则返回当前槽位（0–3），否则 null。
+   * 有线时 [0x85,7] 在 1.4.x 固件上回显 7（更早的固件回 0），用它区分"槽位 0"和"不支持"。
+   */
+  async probeHwSlot() {
+    if (!this.iswireless) {
+      const r = await this._retry(() => this._fromData(0x85, 7));
+      if (!r || r[1] !== 7) return null;
+    }
+    return this.readHwSlot();
+  }
+
+  /** [5,6,N]：切到硬件槽位 N（官方新版桌面驱动 sub_44A1C0） */
+  setHwSlot(n) {
+    if (n < 0 || n > 3) return Promise.resolve(false);
+    return this._doTask(new Uint8Array([5, 6, n, 0, 0, 0, 0, 0]));
+  }
+
+  /** 等一个满足 pred 的状态包；ms 内没等到返回 null */
+  waitStatus(pred, ms) {
+    return new Promise((resolve) => {
+      let timer;
+      const on = (e) => {
+        if (!pred(e.detail)) return;
+        clearTimeout(timer);
+        this.removeEventListener('status', on);
+        resolve(e.detail);
+      };
+      this.addEventListener('status', on);
+      timer = setTimeout(() => {
+        this.removeEventListener('status', on);
+        resolve(null);
+      }, ms);
+    });
   }
 
   /** 读取鼠标当前的按键映射（按界面按键顺序），无法识别的项为 null */
@@ -812,7 +928,8 @@ export class IncottDevice extends EventTarget {
     pg += 5;
     progress(pg);
 
-    if (flag & apOnboardIndex || this.curOnBoard == null) {
+    // profileIndex 为 null 时不写 [6,9,序号]（以前读不到 curOnBoard 时会写成 [6,9,0]）
+    if (ctx.profileIndex != null && (flag & apOnboardIndex || this.curOnBoard == null)) {
       await sleep(waitT);
       if (await this.setProfileIndex(ctx.profileIndex)) this.curOnBoard = ctx.profileIndex;
     }

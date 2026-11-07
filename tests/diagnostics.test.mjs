@@ -35,7 +35,9 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
   // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
   const isStar = (b) => [0x80, 0x81, 0x82, 0x84, 0x88].includes(b[0]) || (b[0] === 0x85 && b[1] !== 3);
-  const reply = (b) => {
+  let prev = [0, 0, 0, 0, 0, 0, 0, 0];
+  const reply = (b) => (prev = answer(b));
+  const answer = (b) => {
     if (zeroStar && isStar(b)) return [b[0], b[1], 0, 0, 0, 0, 0, 0];
     switch (b[0]) {
       case 0x8f:
@@ -51,6 +53,8 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
       case 0x84:
         return [0x84, b[1], [0, 0, 0, 0, 1, 1][b[1]], 0, 0, 0, 0, 0];
       case 0x85:
+        // 不认识的子序号（例如 [0x85,6]）：和旧固件经接收器时一样，回显子序号，其余是上一条回包的残留
+        if (b[1] < 1 || b[1] > 3) return [0x85, b[1], ...prev.slice(2)];
         return [[0x85, 1, 8, 0], [0x85, 2, 3, 10, 0], [0x85, 3, 60, 0]][b[1] - 1].concat([0, 0, 0, 0]).slice(0, 8);
       case 0x86: {
         const c = b[1] === 9 ? 0 : keys[b[1]] || 0;
@@ -131,7 +135,7 @@ test('已连接：汇总里有型号码、PID、连接时 143/142/137 原文、�
   assert.match(text, /input reports {2}4 total \(id1:1 id9:3\)/);
   assert.match(text, /last input reports:\n {2}\+ *\d+ms in#9 {2}3C 20 48 00 1F 1F 01 00/);
   // 解码与对照
-  assert.match(text, /web: pwr=60% chg=0 rate=1000Hz dpi#=2 profile=1 \| desktop: state=60 bat=32% dpi#=72 rate=1000Hz/);
+  assert.match(text, /\*packed: pwr=60% chg=0 rate=1000Hz dpi#=2 profile=1 deb=8 x\/y=31\/31 lod=0 motion=1 \| old: chg=60 bat=32% dpi#=72 rate=1000Hz/);
   assert.match(text, /✓ dpi #6 x \* +device 6400 +profile 6400/);
   assert.match(text, /✓ debounce \* +device 8 +profile 8/);
   assert.match(text, /≠ dpi current +device 2 +profile 1/);

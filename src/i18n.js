@@ -54,6 +54,8 @@ const zh = {
   // 板载配置
   profile: '配置',
   onboardProfile: '配置',
+  onboardSlots: '板载配置',
+  onboardSlotsTip: '4 套配置存在鼠标里，关掉软件后鼠标上的「配置切换」键照样能切换',
   profileN: (n) => `配置 ${n}`,
   importProfile: '导入配置文件 (.ict)',
   exportProfile: '导出当前配置',
@@ -89,7 +91,12 @@ const zh = {
   ovCopyMsg: (from, to) => `用配置 ${from} 的全部设置覆盖配置 ${to}，并写入鼠标？配置 ${to} 原来的设置会丢失。`,
   ovCopyOk: '覆盖',
   ovCopyDone: (from, to) => `已把配置 ${from} 复制到配置 ${to}`,
-  switchKeyRemoved: (btns) => `「配置切换」已不再支持（配置改为在软件里切换）：${btns}已恢复默认功能并写入鼠标`,
+  switchKeyRemoved: (btns) => `这只鼠标的固件不支持由软件切换板载配置，「配置切换」不可用：${btns}已恢复默认功能并写入鼠标`,
+  switchKeyShared: '「配置切换」键由鼠标统一保存：这个按键在 4 个板载配置里一起改了',
+  switchKeyNotHere: '「配置切换」不能设在左键或右键上',
+  switchKeyNeedSlots: '这只鼠标的固件不支持板载配置切换',
+  slotFollowed: (n) => `鼠标切到了板载配置 ${n}`,
+  slotSwitchFailed: '鼠标没有响应切换板载配置的命令（固件可能不支持），已改为把配置写进鼠标当前的槽位',
   adoptedOutside: (n) => `鼠标里的部分设置在软件外改过，已读进配置 ${n}`,
   hwSlotMoved: '鼠标换到了另一套板载设置（可能有按键在别的驱动里设成了「配置切换」），已把当前配置写进去',
   writingDevice: '正在写入鼠标，请稍候…',
@@ -315,6 +322,8 @@ const zh = {
   aboutDesc: '基于 INCOTT 官方网页驱动（WebHID）移植的桌面版。所有设置直接写入鼠标板载内存，本软件不联网。',
   firstRunNotice:
     '首次使用：已从鼠标读取现有的设置（按键、DPI、回报率、消抖等），4 个配置都从它开始，修改前不会写入。若想沿用网页驱动里保存的配置，可在网页驱动中导出 .ict 文件后在这里导入。',
+  firstRunNoticeSlots:
+    '首次使用：配置 1–4 就是鼠标里的 4 个板载配置，已读出当前这个；第一次切到其它配置时从鼠标读出它的设置，修改前不会写入。若想沿用网页驱动里保存的配置，可导出 .ict 文件后在这里导入。',
   gotIt: '知道了',
 };
 
@@ -371,6 +380,8 @@ const en = {
 
   profile: 'Profile',
   onboardProfile: 'Profile',
+  onboardSlots: 'Onboard profile',
+  onboardSlotsTip: 'The 4 profiles live in the mouse; its Profile Switch button keeps working with the app closed',
   profileN: (n) => `Profile ${n}`,
   importProfile: 'Import profile (.ict)',
   exportProfile: 'Export current profile',
@@ -406,7 +417,12 @@ const en = {
   ovCopyMsg: (from, to) => `Overwrite profile ${to} with every setting of profile ${from} and write it to the mouse? The current settings of profile ${to} will be lost.`,
   ovCopyOk: 'Overwrite',
   ovCopyDone: (from, to) => `Copied profile ${from} into profile ${to}`,
-  switchKeyRemoved: (btns) => `Profile Switch is no longer supported (profiles are switched in the app): ${btns} restored to default and written to the mouse`,
+  switchKeyRemoved: (btns) => `This mouse's firmware cannot switch onboard profiles from the app, so Profile Switch is unavailable: ${btns} restored to default and written to the mouse`,
+  switchKeyShared: 'The mouse keeps Profile Switch in all onboard profiles: this button was changed in all 4 of them',
+  switchKeyNotHere: 'Profile Switch cannot be set on the left or right button',
+  switchKeyNeedSlots: "This mouse's firmware cannot switch onboard profiles",
+  slotFollowed: (n) => `The mouse switched to onboard profile ${n}`,
+  slotSwitchFailed: "The mouse did not respond to the onboard profile switch (its firmware may not support it); the profile was written into the mouse's current slot instead",
   adoptedOutside: (n) => `Some settings were changed outside the app; they were taken into profile ${n}`,
   hwSlotMoved: 'The mouse moved to another onboard slot (a button may be set to Profile Switch in another driver); the current profile was written into it',
   writingDevice: 'Writing to the mouse, please wait…',
@@ -623,6 +639,8 @@ const en = {
     'A desktop port of the official INCOTT WebHID driver. All settings are written to the mouse onboard memory; this app never goes online.',
   firstRunNotice:
     'First run: the current settings were read from the mouse (buttons, DPI, polling rate, debounce…) and all 4 profiles start from them; nothing is written until you change something. To reuse profiles saved in the web driver, export an .ict file there and import it here.',
+  firstRunNoticeSlots:
+    "First run: profiles 1–4 are the mouse's 4 onboard profiles and the active one was read from it; each of the others is read the first time you switch to it, and nothing is written until you change something. To reuse profiles saved in the web driver, export an .ict file there and import it here.",
   gotIt: 'Got it',
 };
 
