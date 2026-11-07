@@ -6,7 +6,7 @@
 // 只发送 0x80–0x8F 的读命令，不会改动鼠标里的任何设置；鼠标正在写入或连接卡住时连读命令也不发，只导出现有记录。
 
 import * as C from './protocol/constants.js';
-import { IncottDevice, toHex, sleep, modelFromCode, keyToHw, hwToKey, withTimeout } from './protocol/device.js';
+import { IncottDevice, toHex, sleep, modelFromCode, keyToHw, hwToKey, withTimeout, statusLayoutOf } from './protocol/device.js';
 import { MAX_ACTION, lpCycle, lpUntilAnyKey, lpUntilKeyRelease, macroToHw } from './protocol/macro.js';
 import { state, settings, curProfile, effectiveRate, diag, toast, isMock, macroUsage } from './store.js';
 import { events, consoleLog, startedAt, uptime } from './diaglog.js';
@@ -32,6 +32,9 @@ export const DIAG_QUERIES = [
   ...range(6, (i) => Q(`dpi value #${i + 1} *`, 0x82, i)),
   ...['LOD', 'ripple', 'angle snap', 'motion sync', 'sensor mode'].map((n, i) => Q(`${n} *`, 0x84, i + 1)),
   ...['debounce *', 'fire key *', 'sleep time'].map((n, i) => Q(n, 0x85, i + 1)),
+  // 官方新版桌面驱动（incott-app 1.4.0.3）：当前硬件槽位；1.4.x 固件回显 7
+  Q('onboard slot *', 0x85, 6),
+  Q('firmware 1.4 check (echoes 7) *', 0x85, 7),
   ...range(6, (i) => Q(`key @ matrix ${i}`, 0x86, i)),
   Q('onboard profile (key 9)', 0x86, 9),
   // 已知型号只有 6 个按键槽位；多出按键的型号（例如 G23 Pro 的回报率键，issue #10）可能在这些槽位里
@@ -65,7 +68,7 @@ function pidKind(pid) {
 
 function sensorOf(b) {
   if (b === 240) return 'PAW3395';
-  if (b === 241) return 'PAW3950';
+  if ([241, 0xe1, 0xe2].includes(b)) return C.sensorName(C.sensorFromByte(b));
   return `unknown → treated as PAW3395`;
 }
 
@@ -105,12 +108,17 @@ function describeCode(code) {
   return `unknown: type=${hex2(code & 255)} b1=${hex2((code >>> 8) & 255)} b2=${hex2((code >>> 16) & 255)} b3=${hex2(code >>> 24)}`;
 }
 
-/** 状态包（Report ID 9）的两种候选布局：网页驱动 / 官方桌面驱动 */
+/** 状态包（Report ID 9）的两种候选布局（见 device.js statusLayoutOf），标出按内容判断的那种 */
 function decodeStatus(hex) {
   const d = fromHex(hex);
   if (!d || d.length < 4) return '';
-  const web = `web: pwr=${d[0] & 127}% chg=${d[0] >> 7} rate=${rateOf(d[1] & 15)} dpi#=${d[1] >> 4} profile=${(d[2] & 192) >> 6}`;
-  const dsk = `desktop: state=${d[0]} bat=${d[1]}% dpi#=${d[2]} rate=${rateOf(d[3])}`;
+  const e = d.concat([0, 0, 0, 0, 0, 0, 0, 0]).slice(0, 8);
+  const pick = statusLayoutOf(e);
+  const mark = (l) => (pick.layout === l ? (pick.sure ? '*' : '?') : '');
+  const x = e[4] | ((e[3] & 15) << 8);
+  const y = e[5] | ((e[3] >> 4) << 8);
+  const web = `${mark('packed')}packed: pwr=${e[0] & 127}% chg=${e[0] >> 7} rate=${rateOf(e[1] & 15)} dpi#=${e[1] >> 4} profile=${(e[2] & 192) >> 6} deb=${e[2] & 63} x/y=${x}/${y} lod=${e[6] >> 4} motion=${e[6] & 15}`;
+  const dsk = `${mark('old')}old: chg=${d[0]} bat=${d[1]}% dpi#=${d[2]} rate=${rateOf(d[3])}`;
   return `${web} | ${dsk}`;
 }
 
@@ -118,6 +126,8 @@ function decodeStatus(hex) {
 function decodeReply(cmd, d, pid) {
   const [c, sub] = cmd;
   if (!d || d[0] !== c) return '';
+  // [0x85,6] 有线时不回显子序号：r[1] 就是槽位；经接收器是 [0x85,6,槽位]
+  if (c === 0x85 && sub === 6 && d[1] !== 6) return pid === C.PID_WIRED && d[1] <= 3 ? `slot ${d[1] + 1}` : `not supported (${d[1]})`;
   if (sub != null && d[1] !== sub) return `sub-index mismatch (${d[1]})`;
   switch (c) {
     case 0x8f: {
@@ -126,8 +136,13 @@ function decodeReply(cmd, d, pid) {
     }
     case 0x8e:
       return `id=${[2, 3, 4, 5].map((i) => hex2(d[i])).join('')}${sub === 1 ? ` online=${d[6]}` : ''}`;
-    case 0x89:
-      return `battery=${d[1]} charge=${d[2]} rate=${rateOf(d[3] & 15)} dpi#=${d[4]} r5=${d[5]} r6=${d[6]} magic=${d[7] === 0x5a ? 'OK' : 'missing'}`;
+    case 0x89: {
+      // 固件 1.4.0.3（IDA）：有线时鼠标实时回答；接收器用最近一个状态包回答，收到过才有 0x5A。r[2] 是连接方式，
+      // 1K 接收器的 r[4] 是状态包第 3 字节（消抖 | 槽位 << 6），其它情况是 DPI 档
+      const link = { 2: 'wired', 1: '1K receiver', 0: '8K receiver' }[d[2]] ?? `?${d[2]}`;
+      const r4 = d[2] === 1 ? `status-d2=${hex2(d[4])}` : `dpi#=${d[4]}`;
+      return `battery=${d[1]} link=${link} rate=${rateOf(d[3] & 15)} ${r4} r5=${d[5]} r6=${d[6]} magic=${d[7] === 0x5a ? 'OK' : 'missing (no status report cached yet)'}`;
+    }
     case 0x83:
       return `stages=${d[1]} current=${d[2]} extra=${d[3]},${d[4]},${d[5]}`;
     case 0x80:
@@ -145,6 +160,8 @@ function decodeReply(cmd, d, pid) {
     case 0x85:
       if (sub === 1) return `${d[2]} ms`;
       if (sub === 2) return `count=${d[2]} interval=${u16(d, 3)} ms`;
+      if (sub === 6) return d[2] <= 3 ? `slot ${d[2] + 1} (via receiver; may be leftover on old firmware)` : `not supported (${d[2]})`;
+      if (sub === 7) return `firmware 1.4.x: ${hex2(d[2])} ${hex2(d[3])} color=${d[4]}`;
       return `${u16(d, 2)} s`;
     case 0x86: {
       const code = u32(d, 2);

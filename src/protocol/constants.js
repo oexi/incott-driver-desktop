@@ -99,6 +99,27 @@ export const DEBOUNCE_MAX = 30;
 
 export const SENSOR_3395 = 0x3395; // 13205
 export const SENSOR_3950 = 0x3950; // 14672
+// 官方新版桌面驱动 incott-app 1.4.0.3（IDA）认的另外两种传感器（143 回包里的传感器字节 0xE1 / 0xE2），
+// 网页驱动和旧版桌面驱动都不认。只有 3395 / 3950 能分开设 X / Y（官方只给这两种开 Y 轴滑块）
+export const SENSOR_E1 = 0xe1; // 200 – 16000，步进 100：dpi = 100 × (hw + 2)
+export const SENSOR_E2 = 0xe2; // 50 – 12000：10000 以内步进 50（50 × (hw + 1)），以上步进 100（100 × (hw − 99)）
+
+/** 143 回包里的传感器字节 → 传感器（其它值按 PAW3395 处理，与以前一致） */
+export function sensorFromByte(b) {
+  if (b === 241) return SENSOR_3950;
+  if (b === 0xe1) return SENSOR_E1;
+  if (b === 0xe2) return SENSOR_E2;
+  return SENSOR_3395; // 240 或未知
+}
+
+/** 传感器显示名 */
+export function sensorName(sensor) {
+  if (sensor === SENSOR_3950) return 'PAW3950';
+  if (sensor === SENSOR_3395) return 'PAW3395';
+  if (sensor === SENSOR_E1) return '16K sensor (0xE1)';
+  if (sensor === SENSOR_E2) return '12K sensor (0xE2)';
+  return `0x${(sensor >>> 0).toString(16)}`;
+}
 
 export const MAX_ONBOARD = 4;
 
@@ -143,12 +164,25 @@ function buildDpiTable(max) {
   return { ui, hw };
 }
 
+/** 按官方新版桌面驱动的换算建表：hw 从 0 开始，dpiOf(hw) 超过 max 为止 */
+function buildDpiTableBy(dpiOf, max) {
+  const ui = [];
+  const hw = [];
+  for (let h = 0; dpiOf(h) <= max; h++) {
+    ui.push(dpiOf(h));
+    hw.push(h);
+  }
+  return { ui, hw };
+}
+
 const DEFAULT_DPI_COLORS = [rgb(255, 0, 0), rgb(0, 0, 255), rgb(0, 255, 0), rgb(255, 255, 0), rgb(0, 255, 255), rgb(255, 0, 255)];
 
-function makeSensor(sensor, max) {
-  const t = buildDpiTable(max);
+function makeSensor(sensor, max, { table = buildDpiTable(max), step = 50, xy = true } = {}) {
+  const t = table;
   return {
     sensor,
+    step, // 界面上的步进（E2 在 10000 以上实际是 100，取值时按表就近）
+    xy, // 能否分开设 X / Y
     defDPIInx: 1,
     dpicolor: DEFAULT_DPI_COLORS.slice(),
     dpi: [400, 800, 1600, 2400, 3200, 6400],
@@ -175,7 +209,12 @@ export function createDevCfg() {
     key,
     lodUI: [0.7, 1, 2],
     lodHW: [0, 1, 2],
-    stDPI: [makeSensor(SENSOR_3395, 32000), makeSensor(SENSOR_3950, 45000)],
+    stDPI: [
+      makeSensor(SENSOR_3395, 32000),
+      makeSensor(SENSOR_3950, 45000),
+      makeSensor(SENSOR_E1, 16000, { table: buildDpiTableBy((h) => 100 * (h + 2), 16000), step: 100, xy: false }),
+      makeSensor(SENSOR_E2, 12000, { table: buildDpiTableBy((h) => (h <= 199 ? 50 * (h + 1) : 100 * (h - 99)), 12000), xy: false }),
+    ],
   };
 }
 

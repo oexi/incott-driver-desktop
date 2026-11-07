@@ -14,8 +14,9 @@ export const MOUSE_FUNCS = [
   [C.favDPIDEC, 'dpiDec'],
   [C.favOFF, 'off'],
 ];
-// 「配置切换」不再出现在可选功能里（配置在电脑上切换），旧配置里遇到时仍能显示名称
-const MOUSE_NAMES = [...MOUSE_FUNCS, [C.favProfile, 'profile']];
+// 「配置切换」只在板载配置（固件能由软件切换槽位）时可选，见 ButtonsPage；其它情况下遇到时仍能显示名称
+export const PROFILE_FUNC = [C.favProfile, 'profile'];
+const MOUSE_NAMES = [...MOUSE_FUNCS, PROFILE_FUNC];
 
 export const MEDIA_FUNCS = [
   [C.fmePLAYER, 'media1'],

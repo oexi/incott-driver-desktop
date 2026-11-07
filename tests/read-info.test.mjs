@@ -49,7 +49,7 @@ async function readPower(info) {
 }
 
 test('电量取自 r[1]（实测 G23V2 有线回包：0x61 = 97%）', async () => {
-  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 90);
+  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 97, "显示原值（固件已平滑），不再按 10% 取整");
   assert.equal(await readPower([0x89, 100, 0, 0, 0, 0, 0, 0x5a]), 100);
 });
 

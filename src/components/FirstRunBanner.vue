@@ -12,7 +12,7 @@ function dismiss() {
 <template>
   <div v-if="state.firstRun && !settings.firstRunAck" class="banner">
     <Info :size="17" class="ic" />
-    <span class="txt">{{ t.firstRunNotice }}</span>
+    <span class="txt">{{ state.hwSlots ? t.firstRunNoticeSlots : t.firstRunNotice }}</span>
     <button class="btn sm" @click="importProfile()"><FileUp :size="13" />{{ t.import }}</button>
     <button class="btn sm ghost" @click="dismiss">{{ t.gotIt }}</button>
   </div>
