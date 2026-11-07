@@ -117,9 +117,17 @@ const highRate = computed(() => effectiveRate.value >= 2000);
 
 /* 传感器模式 */
 const modeIcons = [Leaf, Scale, Rocket];
-// 「最高性能」：只有 1.4.x 固件的 PAW3950 有，只在电竞模式下起作用。和官方新版桌面驱动一样，只看保存的模式：
-// 2000 Hz 以上固件虽然临时用电竞模式，但保存的是标准 / 节能时不显示（回到 1000 Hz 以下它就不起作用了）
-const showHiFps = computed(() => hiFpsSupported.value && pf.value?.sensormode === 2);
+// 「最高性能」：只有 1.4.x 固件的 PAW3950 有，只在电竞模式实际生效时起作用——保存的是电竞，或回报率 ≥ 2000 Hz
+// （固件这时固定用电竞模式，也会用这一位）。界面在 ≥ 2000 Hz 时高亮的就是电竞，所以这时也显示，和看到的一致。
+// 官方新版桌面驱动只看保存的模式，但它在 ≥ 2000 Hz 时高亮的也是保存的模式。
+// 保存的不是电竞时注明：降到 2000 Hz 以下后要选电竞模式才生效
+const showHiFps = computed(() => hiFpsSupported.value && (highRate.value || pf.value?.sensormode === 2));
+// 固件的疏漏（IDA：1.4.0.3 sub_100102E4 / [1,回报率] / 槽位重载）：保存的是节能时，2000 / 4000 Hz 下把「最高性能」写死成 0，
+// 只有 8000 Hz 走单独的分支才认。软件绕不过去（只能改掉用户保存的模式），所以这时开关不可点，并说明原因
+const hiFpsBlocked = computed(() => showHiFps.value && pf.value?.sensormode === 0 && [2000, 4000].includes(effectiveRate.value));
+const hiFpsOnlyHighRate = computed(() => showHiFps.value && !hiFpsBlocked.value && pf.value?.sensormode !== 2);
+// 开关是开着的（保存的设置）时说清楚：已开启，只是现在不生效
+const hiFpsBlockedText = computed(() => (pf.value?.hifps ? t.value.hiFpsOnInactive : '') + t.value.hiFpsEcoNote);
 
 /* LOD */
 const lods = computed(() => C.lodOptions(state.info.sensor));
@@ -267,8 +275,18 @@ function fmtRate(r) {
         <div class="hi-txt">
           <div class="hi-name">{{ t.hiFps }}</div>
           <div class="hi-desc">{{ t.hiFpsDesc }}</div>
+          <div v-if="hiFpsBlocked" class="hi-desc hi-note warn">{{ hiFpsBlockedText }}</div>
+          <div v-else-if="hiFpsOnlyHighRate" class="hi-desc hi-note">{{ t.hiFpsHighRateNote }}</div>
         </div>
-        <div class="switch" :class="{ on: pf.hifps }" role="switch" :aria-checked="!!pf.hifps" :title="t.hiFps" @click="setHiFps(!pf.hifps)"></div>
+        <div
+          class="switch"
+          :class="{ on: pf.hifps, disabled: hiFpsBlocked }"
+          role="switch"
+          :aria-checked="!!pf.hifps"
+          :aria-disabled="hiFpsBlocked"
+          :title="hiFpsBlocked ? hiFpsBlockedText : t.hiFps"
+          @click="!hiFpsBlocked && setHiFps(!pf.hifps)"
+        ></div>
       </div>
     </section>
   </div>
@@ -556,6 +574,16 @@ function fmtRate(r) {
 }
 .hifps .switch {
   flex: none;
+}
+.hi-note {
+  color: var(--text-2);
+}
+.hi-note.warn {
+  color: var(--warn, #e0a030);
+}
+.hifps .switch.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 @media (max-width: 1180px) {
   .grid2 {
