@@ -315,6 +315,9 @@ const zh = {
     '接收器报告鼠标不在线（8E 01 第 6 字节 = 0，含义待实机确认）。如果鼠标已开机，可能是配对丢失，可参考 issue #6 重新配对',
   fNoStatus: (s) => `连接 ${s} 秒内没有收到状态包：电量、DPI、回报率不会自动更新（界面一直显示"电量同步中"）`,
   fStatus: (n, s) => `连接 ${s} 秒内收到 ${n} 个状态包`,
+  fNoStatusYet: (s) =>
+    `连接 ${s} 秒内还没有收到状态包；鼠标只在电量更新（间隔较长）或 DPI、回报率等变化时才发，电量暂时取自连接时的读取`,
+  fNoStatusLong: (s) => `连接 ${s} 秒内没有收到状态包：电量只来自连接时的读取，在鼠标上改 DPI、回报率后界面不会自动更新`,
   fFirmware: (v) => `固件版本（0x80）：${v}`,
   fStarZero: '固件对官方桌面驱动专用的读命令（标 *）只回了全 0，可能不支持这些命令；对照表里相关项目标为 ?',
   fFirstRun: '首次使用：本地配置里除按键和 DPI 档位数以外都是默认值，还没写入过鼠标，对照表里的不一致是正常的',
@@ -637,6 +640,10 @@ const en = {
     'The receiver reports the mouse as not online (8E 01 byte 6 = 0; meaning not yet confirmed). If the mouse is on, the pairing may be lost — see issue #6 for re-pairing',
   fNoStatus: (s) => `No status packets in the ${s} s since connecting: battery, DPI and polling rate will not update (battery stays "syncing")`,
   fStatus: (n, s) => `${n} status packets in the ${s} s since connecting`,
+  fNoStatusYet: (s) =>
+    `No status packets yet in the ${s} s since connecting; the mouse only sends one when the battery level is updated (infrequently) or DPI, polling rate etc. change, so the battery comes from the read at connect`,
+  fNoStatusLong: (s) =>
+    `No status packets in the ${s} s since connecting: the battery only comes from the read at connect, and DPI or polling rate changes made on the mouse will not show up`,
   fFirmware: (v) => `Firmware version (0x80): ${v}`,
   fStarZero: 'The firmware answered the desktop-driver-only read commands (marked *) with all zeros and may not support them; those rows are marked ?',
   fFirstRun: 'First run: apart from keys and the number of DPI stages the local profile holds defaults never written to the mouse, so mismatches are expected',

@@ -845,7 +845,7 @@ async function pushDiff(dev, p, head, note, started) {
     await sleep(250);
     state.progress = { visible: false, pct: 0 };
   }
-  const what = jobs.map(([f, i]) => (i ? `${flagNames(f)}#${i}` : flagNames(f))).join(', ');
+  const what = jobs.map(([f, i]) => (i === 255 ? `${flagNames(f)}(all)` : i ? `${flagNames(f)}#${i}` : flagNames(f))).join(', ');
   const end = stopped ? ' → stopped, another profile was picked' : ok ? '' : ` → FAILED at ${dev.applyError || '?'}`;
   logEvent(`${head}: wrote ${what}${note}${end} ${ms()}`);
   return stopped ? 'stopped' : ok ? 'done' : 'failed';
