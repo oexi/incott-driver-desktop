@@ -710,9 +710,13 @@ export class IncottDevice extends EventTarget {
       if (r) star.push(r[2], r[3]);
       if (r) out.fire = [r[2], r[3]];
       for (let i = 0; i < dvar.key.length; i++) out.keys.push(await this._retry(() => this.readKEY(dvar.key[i].matrix)));
-      r = await read(0x88);
-      if (r) star.push(r[1]);
-      if (r) out.receiverLED = r[1];
+      // 接收器灯效只有 8K 接收器有（写入、对照也只在 8K 时做）。1K 接收器（276.bin）不认识 0x88，
+      // 只回上一条的残留，回显对不上要重试 3 次（issue #11 诊断里白白多了约 300ms）
+      if (this.is8KReceiver) {
+        r = await read(0x88);
+        if (r) star.push(r[1]);
+        if (r) out.receiverLED = r[1];
+      }
     }
     if (star.length && star.every((v) => v === 0)) {
       out.starZero = true;

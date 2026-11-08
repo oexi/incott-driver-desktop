@@ -59,6 +59,11 @@ const SENSOR_MODE = ['LP/节能', 'HP/标准', 'Corded/电竞'];
 const u16 = (d, i) => d[i] | (d[i + 1] << 8);
 const u32 = (d, i) => (d[i] | (d[i + 1] << 8) | (d[i + 2] << 16) | (d[i + 3] << 24)) >>> 0;
 const EXTRA_SLOTS = [6, 7, 8, 10, 11, 12, 13, 14, 15];
+/**
+ * 电量已知时，连接多久还没有状态包才警告。固件 1.4.0.3 每 3 次电量采样（每次间隔 15000 个节拍，推测约 15 秒）
+ * 发一个状态包，另外在 DPI / 回报率 / 槽位等变化时发；两分钟一个都没有就不正常了
+ */
+const NO_STATUS_WARN_S = 120;
 
 function pidKind(pid) {
   if (pid === C.PID_WIRED) return 'wired';
@@ -250,7 +255,8 @@ function compareWithProfile(raw, pf, dev, { starUnsupported, firstRun }) {
   for (let i = 0; i < 6; i++) {
     d = data(`130,${i}`);
     if (!d && i >= pf.dpi.length) continue;
-    row(`dpi #${i + 1} x`, d && (u16(d, 2) + 1) * 50, pf.dpi[i] ?? '-', true);
+    // 档位数以外的档鼠标不会用到，里面是以前留下的值，只列出来、不算不一致（issue #11：配置只有 1 档时 #2–#6 被误报）
+    row(`dpi #${i + 1} x`, d && (u16(d, 2) + 1) * 50, i < pf.dpi.length ? pf.dpi[i] : null, true);
   }
   d = data('129');
   row('rate', d && rateOf(d[1]), rateOf(C.RATE_HW.indexOf(effectiveRate.value)), true);
@@ -411,8 +417,13 @@ export function buildFindings(c, tr = t.value) {
   if (c.probeUnsupported != null) out.push(W(tr.fUnsupported(c.probeUnsupported)));
   if (c.wireless && c.linkOnline === 0) out.push(W(tr.fOffline));
   if (c.connected) {
-    if (!c.statusCount && c.sinceConnect >= 10) out.push(W(tr.fNoStatus(c.sinceConnect)));
-    else out.push(I(tr.fStatus(c.statusCount || 0, c.sinceConnect)));
+    // 固件只在电量更新（间隔较长）或 DPI / 回报率等变化时才发状态包，刚连上没收到很正常。
+    // 连接时 0x89 已经读到电量的话界面并不是"电量同步中"，只有一直等不到状态包才值得警告
+    const s = c.sinceConnect;
+    if (c.statusCount || s < 10) out.push(I(tr.fStatus(c.statusCount || 0, s)));
+    else if (!c.powerKnown) out.push(W(tr.fNoStatus(s)));
+    else if (s >= NO_STATUS_WARN_S) out.push(W(tr.fNoStatusLong(s)));
+    else out.push(I(tr.fNoStatusYet(s)));
   }
   if (c.firmware != null) out.push(I(tr.fFirmware(c.firmware)));
   if (c.starUnsupported) out.push(I(tr.fStarZero));
@@ -544,6 +555,7 @@ export async function collectDiagnostics({ busy = null, sysHid = null } = {}) {
       linkOnline: dev.linkOnline,
       statusCount: src.inputById[C.REPORT_ID] || 0,
       sinceConnect: secsSince(dev.connectedAt),
+      powerKnown: state.info.power >= 0,
       firstRun: state.firstRun,
     });
     L.push('', `### Summary (connected${busy ? ', busy' : ''})`);

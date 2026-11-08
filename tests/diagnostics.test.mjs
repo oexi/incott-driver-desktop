@@ -30,7 +30,7 @@ const { t } = await import('../src/i18n.js');
 const { markRaw } = await import('vue');
 
 /** 按实测 G23V2（无线 8K）回包构造的假设备 */
-function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false } = {}) {
+function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6 } = {}) {
   const sent = [];
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
   // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
@@ -41,13 +41,18 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
     if (zeroStar && isStar(b)) return [b[0], b[1], 0, 0, 0, 0, 0, 0];
     switch (b[0]) {
       case 0x8f:
-        return [0x8f, 1, model, 2, 0xf0, 0xf1, 0, 0];
+        // rx1k：issue #11 的 G24（PAW3395、1K 接收器）
+        return rx1k ? [0x8f, 1, model, 1, 0, 0xf0, 0, 0] : [0x8f, 1, model, 2, 0xf0, 0xf1, 0, 0];
       case 0x8e:
         return [0x8e, b[1], 0xc8, 0xd3, 0x2f, 0x63, b[1] === 1 ? online : 0, 0];
       case 0x89:
-        return [0x89, 0, 0, 0, 0, 0, 0, 0x5a];
+        // 1K 接收器用最近一个状态包回答：[89, 电量, 1, 回报率, 状态包 d2, 0, 链路, 5A]（issue #11 原文）
+        return rx1k ? [0x89, 3, 1, 3, 8, 0, 1, 0x5a] : [0x89, 0, 0, 0, 0, 0, 0, 0x5a];
       case 0x83:
-        return [0x83, 6, 2, 0, 0, 0, 0, 0];
+        return [0x83, stages, stages > 2 ? 2 : 0, 0, 0, 0, 0, 0];
+      case 0x88:
+        // 1K 接收器不认识 0x88：回上一条的残留
+        return rx1k ? prev : [0x88, 0, 0, 0, 0, 0, 0, 0];
       case 0x82:
         return [0x82, b[1], [7, 15, 31, 47, 63, 127][b[1]], 0, 0, 0, 0, 0];
       case 0x84:
@@ -331,6 +336,69 @@ test('issue #6 / #11 场景：接收器报告鼠标不在线、连接后一直�
   assert.match(text, /⚠ 接收器报告鼠标不在线/);
   assert.match(text, /⚠ 连接 30 秒内没有收到状态包/);
   await cleanup();
+});
+
+test('issue #11：1K 接收器连接、配置只有 1 档 DPI——不读 0x88，没用到的档不算不一致，电量已知时不报"同步中"', async () => {
+  const hid = fakeHid({ model: 3, rx1k: true, stages: 1 });
+  granted = [hid];
+  const dev = new IncottDevice(hid);
+  await dev.open();
+  assert.equal(dev.power, 3);
+  assert.equal(dev.is8KReceiver, false);
+  const before = hid.sent.length;
+  const m = await dev.readSlot(6);
+  assert.ok(!hid.sent.slice(before).some((b) => b[0] === 0x88), '1K 接收器上不读接收器灯效');
+  assert.equal(m.receiverLED, null);
+  assert.deepEqual(m.dpi, [7, 15, 31, 47, 63, 127]); // 硬件值：(v + 1) × 50
+
+  const list = new StProfileList();
+  for (let i = 0; i < 4; i++) list.add(new StProfile(`板载配置${i + 1}`, C.dvar, C.SENSOR_3395));
+  const pf = list.list[0];
+  pf.dpi = [400];
+  pf.dpiy = [400];
+  pf.curDpi = 0;
+  store.state.profiles = list;
+  store.state.curIndex = 0;
+  store.state.device = markRaw(dev);
+  store.state.info.power = dev.power;
+  store.state.firstRun = false;
+  store.state.phase = 'ready';
+  dev.connectedAt = Date.now() - 18000;
+
+  const text = await collectDiagnostics();
+  assert.match(text, /✓ dpi stages +device 1 +profile 1/);
+  assert.match(text, /✓ dpi #1 x \* +device 400 +profile 400/);
+  assert.match(text, /· dpi #2 x \* +device 800 +profile -/);
+  assert.match(text, /· dpi #6 x \* +device 6400 +profile -/);
+  assert.doesNotMatch(text, /不一致：.*dpi #/);
+  assert.doesNotMatch(text, /[✓≠?·] receiver LED/); // 对照表只在 8K 时比较灯效（原始查询里照样探测 0x88）
+  assert.match(text, /· 连接 18 秒内还没有收到状态包/);
+  assert.doesNotMatch(text, /电量同步中/);
+
+  store.state.device = null;
+  store.state.info.power = -1;
+  store.state.phase = 'welcome';
+  granted = [];
+});
+
+test('8K 接收器照常读 0x88', async () => {
+  const hid = fakeHid();
+  const dev = new IncottDevice(hid);
+  await dev.open();
+  assert.equal(dev.is8KReceiver, true);
+  const before = hid.sent.length;
+  await dev.readSlot(6);
+  assert.ok(hid.sent.slice(before).some((b) => b[0] === 0x88));
+});
+
+test('自动判断：没有状态包时按电量是否已知、等了多久分别处理', () => {
+  const tr = t.value;
+  const f = (c) => buildFindings({ connected: true, statusCount: 0, prevLog: { cleanExit: true }, ...c }, tr)[0];
+  assert.match(f({ sinceConnect: 5, powerKnown: false }), /^· 连接 5 秒内收到 0 个状态包/);
+  assert.match(f({ sinceConnect: 18, powerKnown: false }), /^⚠ 连接 18 秒内没有收到状态包.*电量同步中/);
+  assert.match(f({ sinceConnect: 18, powerKnown: true }), /^· 连接 18 秒内还没有收到状态包/);
+  assert.match(f({ sinceConnect: 130, powerKnown: true }), /^⚠ 连接 130 秒内没有收到状态包：电量只来自连接时的读取/);
+  assert.doesNotMatch(f({ sinceConnect: 130, powerKnown: true }), /电量同步中/);
 });
 
 test('自动判断：找不到设备、PID 不认识、没有响应、Linux 权限', () => {
