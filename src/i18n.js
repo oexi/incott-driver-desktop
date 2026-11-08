@@ -200,7 +200,7 @@ const zh = {
   ],
   sensorModeHighRate: '回报率 ≥ 2000Hz 时固定为电竞模式',
   hiFps: '最高性能',
-  hiFpsDesc: '电竞模式下让传感器始终使用高速参数（DPI 7000 以上本来就是），追踪更灵敏，无线续航可能缩短',
+  hiFpsDesc: '电竞模式下，DPI 低于 7000 时也把传感器帧率从约 12000 提到约 20000 fps（7000 以上本来就是），追踪更灵敏，无线续航可能缩短',
   hiFpsHighRateNote: '现在因回报率 ≥ 2000Hz 以电竞模式运行；降到 2000Hz 以下后，要选电竞模式才生效',
   hiFpsOnInactive: '已开启，但当前不生效：',
   hiFpsEcoNote: '保存的是节能模式时，固件在 2000 / 4000Hz 下不支持「最高性能」。如需使用，请改用 8000Hz，或把回报率降到 1000Hz 以下后选择标准或电竞模式',
@@ -528,7 +528,7 @@ const en = {
   hiFpsHighRateNote: 'Active now because ≥ 2000Hz runs in High Performance mode; below 2000Hz it only applies in High Performance mode',
   hiFpsOnInactive: 'On, but not active right now: ',
   hiFpsEcoNote: 'With Low Power saved as the sensor mode, the firmware ignores High FPS at 2000 / 4000Hz. To use it, switch to 8000Hz, or go below 2000Hz and pick Standard or High Performance mode',
-  hiFpsDesc: 'In High Performance mode, keeps the sensor on its high-speed settings at every DPI (they are used from 7000 DPI anyway). More responsive tracking; may shorten wireless battery life',
+  hiFpsDesc: 'In High Performance mode, raises the sensor frame rate from about 12,000 to about 20,000 fps below 7000 DPI (it already runs at 20,000 from 7000 DPI). More responsive tracking; may shorten wireless battery life',
   lodTitle: 'Lift-off distance',
   lodDesc: 'Height at which the sensor stops tracking when the mouse is lifted',
 
