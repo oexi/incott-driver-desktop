@@ -30,21 +30,28 @@ const { t } = await import('../src/i18n.js');
 const { markRaw } = await import('vue');
 
 /** 按实测 G23V2（无线 8K）回包构造的假设备 */
-function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6 } = {}) {
+function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6, onlineAfter = 0 } = {}) {
   const sent = [];
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
   // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
   const isStar = (b) => [0x80, 0x81, 0x82, 0x84, 0x88].includes(b[0]) || (b[0] === 0x85 && b[1] !== 3);
   let prev = [0, 0, 0, 0, 0, 0, 0, 0];
+  // onlineAfter：鼠标前 onlineAfter 次 8E 01 都还没连上接收器（issue #11 插回接收器后）。这期间接收器自己回 8F / 8E / 89，
+  // 其余读命令只回全 0（连回显也没有）
+  let matchQueries = 0;
+  const offline = () => onlineAfter > 0 && matchQueries <= onlineAfter;
   const reply = (b) => (prev = answer(b));
   const answer = (b) => {
+    if (b[0] === 0x8e && b[1] === 1) matchQueries++;
+    if (offline() && b[0] === 0x89) return [0x89, 0, 1, 3, 0, 0, 0, 0];
+    if (offline() && b[0] !== 0x8f && b[0] !== 0x8e) return [0, 0, 0, 0, 0, 0, 0, 0];
     if (zeroStar && isStar(b)) return [b[0], b[1], 0, 0, 0, 0, 0, 0];
     switch (b[0]) {
       case 0x8f:
         // rx1k：issue #11 的 G24（PAW3395、1K 接收器）
         return rx1k ? [0x8f, 1, model, 1, 0, 0xf0, 0, 0] : [0x8f, 1, model, 2, 0xf0, 0xf1, 0, 0];
       case 0x8e:
-        return [0x8e, b[1], 0xc8, 0xd3, 0x2f, 0x63, b[1] === 1 ? online : 0, 0];
+        return [0x8e, b[1], 0xc8, 0xd3, 0x2f, 0x63, b[1] === 1 && !offline() ? online : 0, 0];
       case 0x89:
         // 1K 接收器用最近一个状态包回答：[89, 电量, 1, 回报率, 状态包 d2, 0, 链路, 5A]（issue #11 原文）
         return rx1k ? [0x89, 3, 1, 3, 8, 0, 1, 0x5a] : [0x89, 0, 0, 0, 0, 0, 0, 0x5a];
@@ -78,8 +85,15 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
     productId: C.PID_WIRELESS,
     productName: 'incott 8K wireless mouse',
     collections: [{ usagePage: 0xff05, usage: 1, type: 1, inputReports: [{ reportId: 9, items: [{ reportSize: 8, reportCount: 32 }] }], outputReports: [], featureReports: [{ reportId: 9, items: [{ reportSize: 8, reportCount: 8 }] }] }],
+    opens: 0,
+    // 和 WebHID 一样：上一次 open() 还没完成时再调用会抛 InvalidStateError
     async open() {
+      if (this.opening) throw new DOMException('An operation that changes the device state is in progress.', 'InvalidStateError');
+      this.opening = true;
+      await new Promise((r) => setImmediate(r));
+      this.opening = false;
       this.opened = true;
+      this.opens++;
     },
     async close() {
       this.opened = false;
@@ -399,6 +413,63 @@ test('自动判断：没有状态包时按电量是否已知、等了多久分�
   assert.match(f({ sinceConnect: 18, powerKnown: true }), /^· 连接 18 秒内还没有收到状态包/);
   assert.match(f({ sinceConnect: 130, powerKnown: true }), /^⚠ 连接 130 秒内没有收到状态包：电量只来自连接时的读取/);
   assert.doesNotMatch(f({ sinceConnect: 130, powerKnown: true }), /电量同步中/);
+});
+
+/** 等到 cond() 成立（测试里计时器立即到期，最多轮询 n 次） */
+async function until(cond, n = 5000) {
+  for (let i = 0; i < n && !cond(); i++) await new Promise((r) => setImmediate(r));
+  return cond();
+}
+
+test('issue #11：插上接收器时几个 connect 事件同时触发自动连接——只连一次，不留下失败提示', async () => {
+  const hid = fakeHid();
+  granted = [hid];
+  store.state.phase = 'welcome';
+  store.state.error = null;
+  const from = events.length;
+  await Promise.all([store.autoConnect(), store.autoConnect(), store.autoConnect()]);
+  assert.equal(store.state.phase, 'ready');
+  assert.equal(store.state.error, null, '连接成功后不能挂着"连接失败"');
+  assert.equal(hid.opens, 1);
+  const msgs = events.slice(from).map((e) => e.msg);
+  assert.equal(msgs.filter((m) => m.startsWith('connect start')).length, 1);
+  assert.ok(!msgs.some((m) => m.startsWith('connect FAILED')));
+  await cleanup();
+});
+
+test('issue #11：刚插回接收器时鼠标还不在线——先等它上线，再读设置', async () => {
+  const hid = fakeHid({ onlineAfter: 3 });
+  const dev = new IncottDevice(hid);
+  await dev.open();
+  assert.equal(dev.linkOnline, 1);
+  assert.ok(dev.onlineWaitMs != null);
+  assert.deepEqual([dev.curDpi, dev.dpiLevels], [2, 6], '上线之后才读 DPI 档位');
+  const m = await dev.readSlot(6);
+  assert.deepEqual(m.dpi, [7, 15, 31, 47, 63, 127]);
+  assert.equal(m.debounce, 8);
+  // 等的时候只问了 8E 01，没有发其它读命令
+  const firstOther = hid.sent.findIndex((b) => b[0] !== 0x8f && b[0] !== 0x8e);
+  assert.equal(hid.sent.slice(0, firstOther).filter((b) => b[0] === 0x8e).length, 4);
+  await dev.close();
+});
+
+test('连接时一直等不到鼠标上线：照旧进入界面，上线后自动重新连接并读出设置', async () => {
+  const hid = fakeHid({ onlineAfter: 30 });
+  granted = [hid];
+  store.state.phase = 'welcome';
+  const from = events.length;
+  await store.autoConnect();
+  assert.equal(store.state.phase, 'ready');
+  const first = store.state.device;
+  assert.equal(first.linkOnline, 0);
+  assert.ok(await until(() => store.state.device && store.state.device !== first && store.state.phase === 'ready'), '上线后重新连接');
+  assert.equal(store.state.device.linkOnline, 1);
+  assert.deepEqual([store.state.device.curDpi, store.state.device.dpiLevels], [2, 6]);
+  const msgs = events.slice(from).map((e) => e.msg);
+  assert.ok(msgs.some((m) => /mouse offline at connect/.test(m)));
+  assert.ok(msgs.some((m) => /still offline after/.test(m)));
+  assert.ok(msgs.some((m) => m === 'mouse came online: reconnecting to read its settings'));
+  await cleanup();
 });
 
 test('自动判断：找不到设备、PID 不认识、没有响应、Linux 权限', () => {

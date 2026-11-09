@@ -312,8 +312,32 @@ export async function checkLinuxPermission() {
   }
 }
 
-/** 自动扫描已授权设备并连接 */
-export async function autoConnect() {
+/**
+ * 自动扫描已授权设备并连接。同一时间只跑一个：插上接收器时 Windows 会连发好几个 connect 事件（一个接口一个），
+ * 以前每个都开始一次连接，第二个 open() 报 InvalidStateError，还把"连接失败"提示留在了连接成功的界面上（issue #11）。
+ * 扫描期间又被调用的，等这次扫描结束、还没连上时再扫一次（设备可能是在扫描之后才出现的）。
+ */
+let autoRun = null;
+let autoAgain = false;
+export function autoConnect() {
+  if (autoRun) {
+    autoAgain = true;
+    return autoRun;
+  }
+  autoRun = (async () => {
+    try {
+      do {
+        autoAgain = false;
+        await scanAndConnect();
+      } while (autoAgain && state.phase === 'welcome');
+    } finally {
+      autoRun = null;
+    }
+  })();
+  return autoRun;
+}
+
+async function scanAndConnect() {
   if (state.phase !== 'welcome' || diag.running) return;
   state.scanning = true;
   try {
@@ -345,7 +369,14 @@ export async function userConnect() {
   await connectTo(hid);
 }
 
-async function connectTo(hid) {
+/** 正在进行的连接：自动连接和用户点击可能同时到达，第二个直接等第一个的结果 */
+let connectRun = null;
+function connectTo(hid) {
+  if (!connectRun) connectRun = doConnect(hid).finally(() => (connectRun = null));
+  return connectRun;
+}
+
+async function doConnect(hid) {
   state.phase = 'connecting';
   state.error = null;
   const dev = markRaw(new IncottDevice(hid));
@@ -395,8 +426,9 @@ async function connectTo(hid) {
   } catch (err) {
     console.warn('[readSlot]', err);
   }
+  const waited = dev.onlineWaitMs == null ? '' : ` (mouse ${dev.linkOnline === 0 ? 'still offline' : 'came online'} after ${dev.onlineWaitMs}ms)`;
   logEvent(
-    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}`
+    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}${waited}`
   );
   if (raw) {
     const keys = raw.keys.map((c) => (c == null ? '-' : (c >>> 0).toString(16))).join(' ');
@@ -405,6 +437,30 @@ async function connectTo(hid) {
   }
   diag.connecting = null;
   enterDevice(dev, raw, hw);
+  if (dev.iswireless && dev.linkOnline === 0) watchOnline(dev);
+}
+
+/**
+ * 连接时等了几秒鼠标还是不在线（鼠标没开、在蓝牙模式、配对丢失）：照旧进入界面，但读到的设置都是空的。
+ * 之后每隔 OFFLINE_POLL 问一次接收器，鼠标一上线就重新连接，把设置重新读一遍。写入、诊断进行中时不问。
+ */
+const OFFLINE_POLL = 2000;
+function watchOnline(dev) {
+  logEvent(`mouse offline at connect: checking every ${OFFLINE_POLL / 1000} s, will reconnect when it comes online`);
+  const tick = async () => {
+    if (state.device !== dev) return;
+    if (!diag.running && !state.applying && state.pending === 0) {
+      await dev.readMatchInfo();
+      if (state.device !== dev) return;
+      if (dev.linkOnline === 1) {
+        logEvent('mouse came online: reconnecting to read its settings');
+        await disconnect('mouse came online');
+        return autoConnect();
+      }
+    }
+    setTimeout(tick, OFFLINE_POLL);
+  };
+  setTimeout(tick, OFFLINE_POLL);
 }
 
 /* ------------------------------------------------------------- 板载配置 */
@@ -995,6 +1051,7 @@ export function requestProfile(p) {
 /** 原版 connectDevice 的第二阶段：载入本地配置，进入设置界面；raw 是连接时从鼠标读到的设置，hw 是读到的硬件槽位 */
 function enterDevice(dev, raw, hw = null) {
   state.device = dev;
+  state.error = null; // 连上了：之前（例如并发的另一次连接）留下的失败提示不再成立
   Object.assign(state.info, {
     devname: dev.devname,
     sensor: dev.sensor,
