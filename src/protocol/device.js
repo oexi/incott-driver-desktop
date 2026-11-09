@@ -267,6 +267,14 @@ const ERR_LOG_MAX = 30;
 export const HID_TIMEOUT = 3000;
 const OPEN_TIMEOUT = 5000;
 
+/**
+ * 无线连接时接收器报告鼠标不在线（8E 01 r[6] = 0），先每隔 ONLINE_POLL 问一次，最多 ONLINE_TRIES 次（约 6 秒）。
+ * 刚插上接收器、刚打开鼠标要过几秒才连上，这期间接收器对读命令只回全 0（issue #11：插回接收器后约 3.6 秒鼠标才上线，
+ * 之前读到的设置全是空的）。按次数而不是按时间限制，测试里计时器立即到期时也不会空转。
+ */
+export const ONLINE_POLL = 300;
+export const ONLINE_TRIES = 20;
+
 /** 超时后原调用仍挂在后台，但调用方会拿到错误，不再卡住 */
 export function withTimeout(p, ms, what = 'hid') {
   let timer;
@@ -295,7 +303,8 @@ export class IncottDevice extends EventTarget {
     this.errLog = []; // HID 错误 / 超时单独保留，不会被大量正常收发挤掉
     this.lastHidError = null;
     this.applyError = null; // 最近一次 apply 失败在哪一步
-    this.linkOnline = null; // 142（8E 01）回包 r[6]：接收器报告的鼠标在线标志（原版读了但被覆盖，含义待实机确认）
+    this.linkOnline = null; // 142（8E 01）回包 r[6]：接收器报告的鼠标在线标志（原版读了但被覆盖）。issue #11 实机：为 0 时读命令只回全 0
+    this.onlineWaitMs = null; // 连接时等鼠标上线等了多久（见 waitOnline），没等过为 null
     this.statusLayout = null; // 状态包布局：'packed' | 'old'（见 statusLayoutOf）
     this._macroPacket = 0;
     this._onInput = (e) => {
@@ -479,6 +488,8 @@ export class IncottDevice extends EventTarget {
       }
       this.linkOnline = null;
       this._log('NOTE', `142 (8E 01) not understood, connecting anyway: ${this.replies[142].hex}`);
+    } else if (this.iswireless && this.linkOnline === 0) {
+      await this.waitOnline();
     }
     this.online = true;
     await this.readInfo();
@@ -526,6 +537,24 @@ export class IncottDevice extends EventTarget {
     // 原版随后无条件把 online 设为 true；这里另存原值，诊断时用来判断"接收器在、鼠标不在线"（例如配对丢失）
     this.linkOnline = r[6];
     return true;
+  }
+
+  /**
+   * 等鼠标连上接收器（见 ONLINE_POLL）。等不到就照旧连接：配对丢失时会一直不在线（issue #6），
+   * 连接后由 store 继续等它上线再重新连接。返回是否在线，等了多久记在 onlineWaitMs
+   */
+  async waitOnline(tries = ONLINE_TRIES) {
+    const started = Date.now();
+    let polls = 0;
+    while (this.linkOnline === 0 && polls < tries) {
+      await sleep(ONLINE_POLL);
+      polls++;
+      if (!(await this.readMatchInfo())) break;
+    }
+    this.onlineWaitMs = Date.now() - started;
+    const online = this.linkOnline !== 0;
+    this._log('NOTE', `mouse ${online ? 'came online' : 'still offline'} after ${polls} poll(s) of 8E 01, ${this.onlineWaitMs}ms`);
+    return online;
   }
 
   async readDif() {
