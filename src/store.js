@@ -209,7 +209,15 @@ async function processQueue() {
     const dev = state.device;
     let ok = false;
     if (job.overlay) state.progress = { visible: true, pct: 0 };
-    if (job.run) {
+    // 要发给鼠标的任务先确认鼠标醒着（只是记下"以后再写"的不用）
+    const deferred = !job.run && dev && state.hwSlots && job.profile !== hwSlot;
+    // 不用问时不 await：任务和以前一样立即开始（连点配置时第一个点的已经开始写）
+    const awake = !dev || deferred || !mayBeAsleep(dev) || (await ensureOnline(dev, job.run ? 'sync' : `apply ${flagNames(job.flag)}`));
+    if (!awake) {
+      logEvent(`${job.run ? 'sync' : `apply ${flagNames(job.flag)}`} skipped: the mouse did not wake up`);
+      // 配置里已经是新值、鼠标里还不是：标记这个槽位，下次进入时以配置为准写进去
+      if (!job.run && state.hwSlots) setSlotState(job.profile, 'stale');
+    } else if (job.run) {
       state.applying = true;
       try {
         ok = !!(await job.run());
@@ -264,7 +272,7 @@ async function processQueue() {
       await sleep(350);
       state.progress = { visible: false, pct: 0 };
     }
-    if (!ok && state.device) toast(t.value.applyFailed, 'error', 4500);
+    if (!ok && state.device) toast(awake ? t.value.applyFailed : t.value.mouseAsleepFailed, 'error', awake ? 4500 : 7000);
     allOk &&= ok;
     const i = queue.indexOf(job);
     if (i >= 0) {
@@ -277,6 +285,34 @@ async function processQueue() {
   }
   if (allOk && state.device) setPending(false);
   processing = false;
+}
+
+/**
+ * 鼠标休眠（或离线）时写命令照样"发送成功"——接收器收下了，但送不送得到鼠标说不准。实测 G23V2 + 8K 接收器：休眠时
+ * 8E 01 的在线标志为 0、转发给鼠标的读命令只回全 0；睡着时单独写一条，醒来后生效了，连写 3 条再切换槽位，醒来后全都没生效。
+ * 所以无线时写之前先问一次接收器；3 秒内收到过状态包（醒着时约每 2 秒一个）或确认过在线就不用问。
+ * 不在线就提示动一下鼠标，最多等 WAKE_TRIES 次（约 15 秒）。
+ */
+const WAKE_TRIES = 50;
+const AWAKE_RECENT = 3000;
+/** 需不需要先问：有线、不认识 8E 的固件（没法判断）、刚收到过状态包或刚确认过在线时都不用（1K 接收器收不到状态包，拖动滑块时不必每次都问） */
+function mayBeAsleep(dev) {
+  return dev.iswireless && dev.linkOnline != null && Date.now() - Math.max(dev.lastInputAt, dev.lastOnlineAt) >= AWAKE_RECENT;
+}
+
+async function ensureOnline(dev, what) {
+  if (!(await dev.readMatchInfo()) || dev.linkOnline !== 0) return true;
+  logEvent(`${what}: mouse offline (asleep?), waiting for it to wake up`);
+  toast(t.value.mouseAsleep, 'warn', 6000);
+  const ok = await dev.waitOnline(WAKE_TRIES);
+  logEvent(`${what}: mouse ${ok ? 'woke up' : 'did not wake up'} after ${dev.onlineWaitMs}ms`);
+  return ok;
+}
+
+/** 刚才的命令没有回应时，鼠标是不是掉线了（接收器报告不在线）。有线、读不到在线标志时算在线 */
+async function mouseWentOffline(dev) {
+  if (!dev.iswireless || dev.linkOnline == null) return false;
+  return (await dev.readMatchInfo()) && dev.linkOnline === 0;
 }
 
 /* ------------------------------------------------------------ 设备发现 */
@@ -951,17 +987,40 @@ async function enterSlot(dev, p) {
     switching = p;
     switchSeen = false;
     followAfter = null;
-    const seen = dev.waitStatus((s) => s.profileIndex === p, 800);
-    const sent = await dev.setHwSlot(p);
-    let ok = sent && !!(await seen);
-    // 没等到状态包（丢包等）：读回槽位确认
-    if (sent && !ok) ok = (await dev.readHwSlot()) === p;
+    // why：没切成的原因。'send' 写命令发不出去；'asleep' 切换后鼠标掉线、一直没醒；'unsupported' 鼠标在线却没切过去
+    let why = null;
+    let ok = false;
+    for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+      const seen = dev.waitStatus((s) => s.profileIndex === p, 800);
+      const sent = await dev.setHwSlot(p);
+      ok = sent && !!(await seen);
+      // 没等到状态包（丢包等）：读回槽位确认
+      if (sent && !ok) ok = (await dev.readHwSlot()) === p;
+      if (ok || state.device !== dev) break;
+      if (!sent) {
+        why = 'send';
+        break;
+      }
+      // 鼠标在线、能回答，却还在原来的槽位：固件不支持切换
+      if (!(await mouseWentOffline(dev))) {
+        why = 'unsupported';
+        break;
+      }
+      // 切换后鼠标马上掉线：多半是切到了休眠时间更短的槽位，鼠标已经闲置得比它久，一切过去就睡着了（实测 G23V2：
+      // 从休眠 15 分钟的配置切到 1 分钟的）。不是固件不支持——等鼠标醒来再看它在哪个槽位，还没切过去就再发一次
+      why = 'asleep';
+      logEvent(`slot ${from + 1} → ${p + 1}: mouse went offline right after the switch (asleep?), waiting for it`);
+      toast(t.value.slotSwitchAsleep(p + 1), 'warn', 8000);
+      if (!(await dev.waitOnline(WAKE_TRIES))) break;
+      ok = (await dev.readHwSlot()) === p;
+    }
     switching = null;
     if (state.device !== dev) return false;
-    if (!sent) {
-      logEvent(`slot ${from + 1} → ${p + 1}: write failed`);
+    if (!ok && why !== 'unsupported') {
+      logEvent(`slot ${from + 1} → ${p + 1}: ${why === 'send' ? 'write failed' : 'mouse did not wake up'}`);
+      toast(why === 'send' ? t.value.applyFailed : t.value.slotSwitchNoWake, 'warn', 8000);
       if (state.curIndex === p) {
-        state.curIndex = from; // 界面回到鼠标实际所在的配置
+        state.curIndex = from; // 界面回到鼠标确认过的配置；鼠标醒来后的状态包会带着它实际所在的槽位（见 followHw）
         persist();
       }
       return false;

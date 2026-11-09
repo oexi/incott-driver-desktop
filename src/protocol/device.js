@@ -305,6 +305,7 @@ export class IncottDevice extends EventTarget {
     this.applyError = null; // 最近一次 apply 失败在哪一步
     this.linkOnline = null; // 142（8E 01）回包 r[6]：接收器报告的鼠标在线标志（原版读了但被覆盖）。issue #11 实机：为 0 时读命令只回全 0
     this.onlineWaitMs = null; // 连接时等鼠标上线等了多久（见 waitOnline），没等过为 null
+    this.lastOnlineAt = 0; // 最近一次接收器报告鼠标在线（8E 01 r[6] = 1）的时间
     this.statusLayout = null; // 状态包布局：'packed' | 'old'（见 statusLayoutOf）
     this._macroPacket = 0;
     this._onInput = (e) => {
@@ -379,6 +380,7 @@ export class IncottDevice extends EventTarget {
       } catch (err) {
         // 超时不再重试：上一次调用还挂着，再发只会继续排队
         if (i >= 2 || isTimeout(err)) {
+          if (isTimeout(err)) this._timedOut = true;
           console.warn('[hid] sendFeatureReport failed', err);
           this._hidError(`sendFeatureReport ${toHex([b[0], b[1]])}${i ? ` (try ${i + 1})` : ''}`, err);
           return false;
@@ -410,6 +412,7 @@ export class IncottDevice extends EventTarget {
     } catch (err) {
       console.warn('[hid] receiveFeatureReport failed', err);
       this._hidError(`receiveFeatureReport${md != null ? ` (cmd ${md})` : ''}`, err);
+      if (isTimeout(err)) this._timedOut = true;
       return null;
     }
     if (!r) return null;
@@ -511,8 +514,10 @@ export class IncottDevice extends EventTarget {
 
   /* -------------------------------------------------------------- 读取 */
 
+  // 连接时的这几条读命令失败（回包读不到 / 回显不对）时重试：Windows 上 receiveFeatureReport 偶尔报
+  // NotAllowedError "Failed to receive the feature report"，以前第一条 0x8F 失败就直接"没有响应"、连接失败（实测 G23V2 + 8K 接收器）
   async readDps() {
-    const r = await this._fromData(143);
+    const r = await this._retry(() => this._fromData(143));
     if (!r) return false;
     // 先记下型号码：psd 不对时诊断信息里也需要它
     this.psd = r[1];
@@ -531,11 +536,12 @@ export class IncottDevice extends EventTarget {
   }
 
   async readMatchInfo() {
-    const r = await this._fromData(142, 1);
+    const r = await this._retry(() => this._fromData(142, 1));
     if (!r) return false;
     this.online = r[6] === 1;
     // 原版随后无条件把 online 设为 true；这里另存原值，诊断时用来判断"接收器在、鼠标不在线"（例如配对丢失）
     this.linkOnline = r[6];
+    if (r[6] === 1) this.lastOnlineAt = Date.now();
     return true;
   }
 
@@ -558,7 +564,7 @@ export class IncottDevice extends EventTarget {
   }
 
   async readDif() {
-    const r = await this._fromData(131);
+    const r = await this._retry(() => this._fromData(131));
     if (!r) return null;
     this._keepDpiExtra(r);
     return [r[2], r[1]]; // [当前档位, 档位数]
@@ -581,7 +587,7 @@ export class IncottDevice extends EventTarget {
    * 收到过状态包才有 r[7] = 0x5A。r[2] 其实是连接方式（有线 2 / 1K 接收器 1 / 8K 接收器 0），不是充电状态。
    */
   async readInfo() {
-    const r = await this._fromData(137);
+    const r = await this._retry(() => this._fromData(137));
     if (!r) return false;
     await sleep(100);
     const di = await this.readDif();
@@ -603,7 +609,7 @@ export class IncottDevice extends EventTarget {
   }
 
   readProfileIndex() {
-    return this.readKEY(9);
+    return this._retry(() => this.readKEY(9));
   }
 
   /* ---------------------------------------------------------- 硬件槽位 */
@@ -688,10 +694,16 @@ export class IncottDevice extends EventTarget {
   }
 
   /** 读取失败时重试：实测 G23V2 刚换完槽位时最初几次读取会失败 */
+  /**
+   * 读不到时再试几次。超时不重试：超时的那次调用还挂在 WebHID 里，再发只会继续排队，
+   * 接收器卡住时连接要多等好几个 HID_TIMEOUT
+   */
   async _retry(fn, tries = 3) {
     for (let i = 0; i < tries; i++) {
+      this._timedOut = false;
       const r = await fn();
       if (r != null) return r;
+      if (this._timedOut) return null;
       if (i < tries - 1) await sleep(60);
     }
     return null;
