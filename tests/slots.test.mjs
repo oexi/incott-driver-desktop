@@ -50,6 +50,10 @@ function mouse({ fw = 'slots', wired = false } = {}) {
   };
   hid.writes = [];
   hid.drop = null; // (bytes) => true 时鼠标收到但不执行（模拟固件不认识）
+  // 休眠（实测 G23V2 + 8K 接收器）：接收器对 8E 01 报告不在线，其余读命令回全 0，写命令照样"发送成功"但鼠标收不到。
+  // asleep：之后还要问几次 8E 01 鼠标才醒；sleepOnSwitch：切换槽位后马上睡着（新槽位的休眠时间更短），来不及发状态包
+  hid.asleep = 0;
+  hid.sleepOnSwitch = 0;
   const send = hid.sendFeatureReport.bind(hid);
   hid.sendFeatureReport = async (id, b) => {
     if (b[0] < 0x80) {
@@ -59,12 +63,30 @@ function mouse({ fw = 'slots', wired = false } = {}) {
         return;
       }
     }
+    if (hid.asleep > 0) {
+      hid.last = Array.from(b);
+      return;
+    }
+    if (b[0] === 5 && b[1] === 6 && hid.sleepOnSwitch > 0) {
+      const emit = hid.emitStatus;
+      hid.emitStatus = () => {};
+      await send(id, b);
+      hid.emitStatus = emit;
+      hid.asleep = hid.sleepOnSwitch;
+      hid.sleepOnSwitch = 0;
+      return;
+    }
     return send(id, b);
   };
   const recv = hid.receiveFeatureReport.bind(hid);
   hid.reads = 0;
   hid.readCmds = [];
   hid.receiveFeatureReport = async (id) => {
+    if (hid.asleep > 0) {
+      const asked = hid.last?.[0] === 0x8e && hid.last?.[1] === 1;
+      if (asked) hid.asleep--;
+      return new DataView(new Uint8Array(asked ? [id, 0x8e, 1, 0, 0, 0, 0, 0, 0] : [id, 0, 0, 0, 0, 0, 0, 0, 0]).buffer);
+    }
     const dv = await recv(id);
     hid.readCmds.push(dv.getUint8(1));
     if (dv.getUint8(1) === 143 && wired) {
@@ -499,5 +521,78 @@ test('宏：每个槽位各存自己的宏，来回切换不重写；在别的�
   await store.requestProfile(0);
   await idle();
   assert.equal(hid.macroHeaders(), 10, '进入槽位 1 时重写改过的宏');
+  await store.disconnect('test');
+});
+
+/* ---------------------------------------------------------------- 休眠 */
+
+test('切到休眠时间更短的配置后鼠标马上睡着：不退出板载模式，提示动一下鼠标，醒来后确认切换', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  hid.sleepOnSwitch = 3;
+  await store.requestProfile(2);
+  await idle();
+  assert.equal(hid.state.slot, 2);
+  assert.equal(store.state.hwSlots, true, '不能因为鼠标睡着就当成固件不支持');
+  assert.equal(store.hiFpsSupported.value, true, '「最高性能」跟着板载模式，不能被藏起来');
+  assert.equal(store.state.slot, 2);
+  assert.equal(store.state.curIndex, 2);
+  assert.equal(mem.profilemode_G23, 'slots');
+  assert.ok(toasts().some((m) => /切到配置 3 后进入了休眠/.test(m)));
+  assert.ok(!toasts().some((m) => /固件可能不支持/.test(m)));
+  assert.deepEqual(hid.slotWrites(), [2], '醒来后读回槽位已经是 3，不再发切换命令');
+  await store.disconnect('test');
+});
+
+test('切换后鼠标睡着、一直没醒：界面回到原来的配置，仍是板载模式', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  hid.sleepOnSwitch = 1000;
+  await store.requestProfile(2);
+  await idle();
+  assert.equal(store.state.curIndex, 0);
+  assert.equal(store.state.hwSlots, true);
+  assert.equal(store.hiFpsSupported.value, true);
+  assert.equal(mem.profilemode_G23, 'slots');
+  assert.ok(toasts().some((m) => /鼠标没有醒来，没能确认切换配置/.test(m)));
+  assert.ok(!toasts().some((m) => /固件可能不支持/.test(m)));
+  hid.asleep = 0;
+  await store.disconnect('test');
+});
+
+test('鼠标在休眠时修改设置：先提示动一下鼠标，醒来后再写进去', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  const dev = store.state.device;
+  hid.asleep = 3;
+  dev.lastInputAt = dev.lastOnlineAt = 0; // 好一会儿没收到状态包
+  store.setDebounce(4);
+  await idle();
+  assert.equal(hid.cur.debounce, 4);
+  assert.ok(toasts().some((m) => /鼠标没有响应，可能在休眠/.test(m)));
+  assert.ok(!toasts().some((m) => /写入鼠标失败/.test(m)));
+  await store.disconnect('test');
+});
+
+test('鼠标一直没醒：修改不发给鼠标，提示动一下鼠标后再试', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  const dev = store.state.device;
+  hid.asleep = 1000;
+  dev.lastInputAt = dev.lastOnlineAt = 0;
+  store.setDebounce(5);
+  await idle();
+  assert.ok(!hid.writes.some((b) => b[0] === 5 && b[1] === 1 && b[2] === 5), '睡着时不发写命令');
+  assert.ok(toasts().some((m) => /鼠标一直没有醒来，这次修改没有写进鼠标/.test(m)));
+  assert.equal(states()[0], 'stale', '配置是新值、鼠标里不是：下次进入槽位时要写进去');
+  hid.asleep = 0;
   await store.disconnect('test');
 });

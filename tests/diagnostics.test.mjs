@@ -30,7 +30,7 @@ const { t } = await import('../src/i18n.js');
 const { markRaw } = await import('vue');
 
 /** 按实测 G23V2（无线 8K）回包构造的假设备 */
-function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6, onlineAfter = 0 } = {}) {
+function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6, onlineAfter = 0, failOnce = [] } = {}) {
   const sent = [];
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
   // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
@@ -101,7 +101,11 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
     async sendFeatureReport(_id, b) {
       sent.push([...b]);
     },
+    // failOnce：这些读命令第一次读回包时失败（Windows 上偶发的 NotAllowedError）
+    failOnce: new Set(failOnce),
     async receiveFeatureReport(id) {
+      const cmd = sent.at(-1)[0];
+      if (this.failOnce.delete(cmd)) throw new DOMException('Failed to receive the feature report.', 'NotAllowedError');
       return new DataView(new Uint8Array([id, ...reply(sent.at(-1))]).buffer);
     },
     addEventListener(_t, fn) {
@@ -386,7 +390,7 @@ test('issue #11：1K 接收器连接、配置只有 1 档 DPI——不读 0x88�
   assert.match(text, /· dpi #6 x \* +device 6400 +profile -/);
   assert.doesNotMatch(text, /不一致：.*dpi #/);
   assert.doesNotMatch(text, /[✓≠?·] receiver LED/); // 对照表只在 8K 时比较灯效（原始查询里照样探测 0x88）
-  assert.match(text, /· 连接 18 秒内还没有收到状态包/);
+  assert.match(text, /⚠ 连接 18 秒内没有收到状态包：电量只来自连接时的读取/);
   assert.doesNotMatch(text, /电量同步中/);
 
   store.state.device = null;
@@ -405,12 +409,12 @@ test('8K 接收器照常读 0x88', async () => {
   assert.ok(hid.sent.slice(before).some((b) => b[0] === 0x88));
 });
 
-test('自动判断：没有状态包时按电量是否已知、等了多久分别处理', () => {
+test('自动判断：10 秒没有状态包就警告；电量已知时不说"电量同步中"', () => {
   const tr = t.value;
   const f = (c) => buildFindings({ connected: true, statusCount: 0, prevLog: { cleanExit: true }, ...c }, tr)[0];
   assert.match(f({ sinceConnect: 5, powerKnown: false }), /^· 连接 5 秒内收到 0 个状态包/);
   assert.match(f({ sinceConnect: 18, powerKnown: false }), /^⚠ 连接 18 秒内没有收到状态包.*电量同步中/);
-  assert.match(f({ sinceConnect: 18, powerKnown: true }), /^· 连接 18 秒内还没有收到状态包/);
+  assert.match(f({ sinceConnect: 18, powerKnown: true }), /^⚠ 连接 18 秒内没有收到状态包：电量只来自连接时的读取/);
   assert.match(f({ sinceConnect: 130, powerKnown: true }), /^⚠ 连接 130 秒内没有收到状态包：电量只来自连接时的读取/);
   assert.doesNotMatch(f({ sinceConnect: 130, powerKnown: true }), /电量同步中/);
 });
@@ -450,6 +454,19 @@ test('issue #11：刚插回接收器时鼠标还不在线——先等它上线�
   // 等的时候只问了 8E 01，没有发其它读命令
   const firstOther = hid.sent.findIndex((b) => b[0] !== 0x8f && b[0] !== 0x8e);
   assert.equal(hid.sent.slice(0, firstOther).filter((b) => b[0] === 0x8e).length, 4);
+  await dev.close();
+});
+
+test('Windows 上连接时偶尔读不到回包：重试后照常连上（以前 8F 失败一次就"没有响应"）', async () => {
+  const hid = fakeHid({ failOnce: [0x8f, 0x8e, 0x89, 0x83, 0x86] });
+  const dev = new IncottDevice(hid);
+  await dev.open();
+  assert.equal(dev.devname, 'G23V2');
+  assert.equal(dev.linkOnline, 1);
+  assert.deepEqual([dev.curDpi, dev.dpiLevels], [2, 6]);
+  assert.equal(dev.curOnBoard, 0);
+  assert.equal(dev.errLog.length, 5);
+  assert.match(dev.errLog[0].hex, /receiveFeatureReport \(cmd 143\): Failed to receive the feature report/);
   await dev.close();
 });
 
