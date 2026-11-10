@@ -638,3 +638,161 @@ test('鼠标睡着时连点两个配置：醒来后切到最后点的那个，�
   assert.deepEqual(hid.slotWrites(), [2]);
   await store.disconnect('test');
 });
+
+/* ------------------------------------------------------------ 2026-11 审查修复 */
+
+test('首次使用时无线鼠标在休眠：不把默认配置当成鼠标里的设置，醒来后从各槽位读进来、不写入', async () => {
+  reset();
+  const hid = mouse();
+  for (const s of hid.slots) Object.assign(s, { rateIx: rateIx(500), debounce: 3, sleep: 300 });
+  hid.state.slot = 1;
+  // 休眠：8E 01 报告不在线，其余读命令（0x8F / 0x89 由接收器回答）回全 0，写命令收不到
+  let sleeping = true;
+  const recv = hid.receiveFeatureReport;
+  hid.receiveFeatureReport = async (id) => {
+    const dv = await recv(id);
+    const cmd = dv.getUint8(1);
+    if (sleeping && cmd === 0x8e) dv.setUint8(7, 0);
+    else if (sleeping && cmd !== 0x8f && cmd !== 0x89) return new DataView(new Uint8Array(9).buffer);
+    return dv;
+  };
+  hid.drop = () => sleeping;
+  await connect(hid);
+  assert.equal(store.state.firstRun, true);
+  await store.disconnect('test');
+  sleeping = false;
+  hid.writes.length = 0;
+  await connect(hid);
+  assert.equal(store.state.firstRun, true, '上次什么都没读到：仍按首次使用');
+  assert.equal(store.state.curIndex, 1);
+  assert.deepEqual(hid.writes, [], '槽位里的设置没被默认值覆盖');
+  assert.equal(pl()[1].usbrate, 500);
+  assert.equal(pl()[1].debounce, 3);
+  await store.requestProfile(2);
+  await idle();
+  assert.equal(C.RATE_HW[hid.slots[2].rateIx], 500);
+  assert.equal(hid.slots[2].debounce, 3);
+  assert.equal(pl()[2].sleeptime, 300, '第一次进入的槽位从鼠标读进来');
+  assert.equal(mem.profilesunread_G23, undefined);
+  await store.disconnect('test');
+});
+
+test('等鼠标醒来期间到达的状态包不会把刚改的值改回去', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  const dev = store.state.device;
+  hid.asleep = 1000;
+  dev.lastInputAt = dev.lastOnlineAt = 0;
+  store.setDebounce(4);
+  for (let i = 0; i < 200 && !toasts().some((m) => /休眠|动一下/.test(m)); i++) await tick();
+  hid.emitStatus(); // 醒来后的第一个状态包，还是旧的消抖 8
+  hid.asleep = 0;
+  await idle();
+  assert.equal(pl()[0].debounce, 4);
+  assert.equal(hid.cur.debounce, 4);
+  await store.disconnect('test');
+});
+
+test('槽位是猜的（连接时鼠标没回答）：写之前先确认，鼠标在别的槽位时修改留给原来的配置', async () => {
+  storeProfiles({ index: 0 });
+  const hid = mouse();
+  fillSlots(hid);
+  hid.state.slot = 2;
+  let asleep = true;
+  const recv = hid.receiveFeatureReport;
+  hid.receiveFeatureReport = async (id) => {
+    const dv = await recv(id);
+    if (asleep && ![0x8f, 0x8e, 0x89].includes(dv.getUint8(1))) return new DataView(new Uint8Array(9).buffer);
+    return dv;
+  };
+  await connect(hid);
+  assert.equal(store.state.curIndex, 0, '按上次的记录猜在配置 1');
+  asleep = false;
+  store.setDebounce(4);
+  await idle();
+  assert.equal(hid.slots[2].debounce, 8, '没写进鼠标实际所在的槽位 3');
+  assert.equal(store.state.curIndex, 2, '界面跟到鼠标所在的配置 3');
+  assert.equal(pl()[2].debounce, 8, '配置 3 没被别的配置的修改污染');
+  assert.equal(states()[0], 'stale');
+  await store.requestProfile(0);
+  await idle();
+  assert.equal(hid.slots[0].debounce, 4, '回到配置 1 时写进去');
+  assert.equal(pl()[0].debounce, 4);
+  await store.disconnect('test');
+});
+
+test('切换后鼠标睡着、界面退回原配置：醒来后的修改不会写进新槽位', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  hid.sleepOnSwitch = 1000;
+  await store.requestProfile(2);
+  await idle();
+  assert.equal(store.state.curIndex, 0);
+  assert.equal(hid.state.slot, 2, '鼠标其实已经切过去了');
+  const dev = store.state.device;
+  dev.lastInputAt = dev.lastOnlineAt = 0;
+  hid.asleep = 2;
+  store.setDebounce(4);
+  await idle();
+  assert.equal(hid.slots[2].debounce, 8);
+  assert.equal(pl()[2].debounce, 8);
+  assert.equal(store.state.curIndex, 2);
+  await store.requestProfile(0);
+  await idle();
+  assert.equal(hid.slots[0].debounce, 4);
+  await store.disconnect('test');
+});
+
+test('别的驱动设在鼠标里的宏：配置里这个键是默认功能时保留，不被覆盖', async () => {
+  reset();
+  const hid = mouse();
+  hid.slots[0].keys[3] = (3 << 16) | 9;
+  await connect(hid);
+  hid.writes.length = 0;
+  await store.requestProfile(1);
+  await idle();
+  await store.requestProfile(0);
+  await idle();
+  assert.equal(hid.slots[0].keys[3], (3 << 16) | 9);
+  assert.deepEqual(hid.writes.filter((b) => b[0] === 6), []);
+  await store.disconnect('test');
+});
+
+test('接收器灯效（各槽位共用）：进入槽位时不读进配置，按配置写；回到原配置时写回原来的', async () => {
+  storeProfiles({ edit: (p, i) => (p.receiverLED = i === 1 ? 1 : 0) });
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  store.state.toasts.length = 0;
+  await store.requestProfile(1);
+  await idle();
+  assert.equal(pl()[1].receiverLED, 1);
+  assert.equal(hid.state.led, 1);
+  assert.ok(!toasts().some((m) => m.includes('软件外改过')));
+  await store.requestProfile(0);
+  await idle();
+  assert.equal(hid.state.led, 0);
+  await store.disconnect('test');
+});
+
+test('1.4.x 固件：[0x82,档,2] 读回 Y——别的驱动设的 X / Y 分开的 DPI 读进配置，一致时不重写', async () => {
+  storeProfiles({ edit: (p) => (p.dpiy[2] = 2000) }); // 配置 1 第 3 档 X 1600 / Y 2000
+  const hid = mouse();
+  fillSlots(hid);
+  const hw = (d) => C.getHwForDpi(d, C.SENSOR_3950);
+  hid.slots[0].dpiy = [];
+  hid.slots[0].dpiy[2] = hw(2000); // 上次写进去的
+  hid.slots[0].dpiy[1] = hw(1200); // 别的驱动把第 2 档设成 X 800 / Y 1200
+  await connect(hid);
+  const pf = pl()[0];
+  assert.equal(pf.dpi[1], 800);
+  assert.equal(pf.dpiy[1], 1200, 'Y 读进配置');
+  assert.equal(pf.dpiy[2], 2000);
+  assert.deepEqual(hid.writes.filter((b) => b[0] === 2), [], '一致时分轴的档不用重写');
+  assert.equal(hid.slots[0].dpiy[1], hw(1200), '鼠标里的 Y 没被改');
+  await store.disconnect('test');
+});

@@ -1,15 +1,39 @@
 // 宏模型——移植自原版 mdev-v104.js（STMacro / STMacroList）与 CBAccess.juji_to_hw。
 
-import { keynameToHid } from './keytable.js';
+import { keynameToHid, keycodeToKeyname, keynameToKeycode } from './keytable.js';
 import { findValForKey, findValForKeyNumber, stringToNumber } from './textfmt.js';
 
 export const MAGIC_MACRO = 'macro100';
 export const lpUntilKeyRelease = 1; // 按住循环
 export const lpUntilAnyKey = 2; // 循环直到任意键按下
 export const lpCycle = 3; // 循环 N 次
-export const MAX_ACTION = 71;
-export const MAX_CYCLE = 65535;
+/**
+ * 动作数上限。原版是 71，但 71 个动作正好填满 288 字节的动作区，后面没有结束标记：固件（1.4.x，IDA）只在下一个动作的
+ * 标志字节为 0 时才算播完一遍，"循环 N 次"的宏就永远停不下来。留一个位置给结束标记
+ */
+export const MAX_ACTION = 70;
+/** 旧版本保存的宏最多 71 个动作：照样读进来，不丢数据 */
+const LEGACY_MAX_ACTION = 71;
+/** 循环次数上限：固件只读次数的低字节（宏缓冲区第 2 字节），256 次会变成 0、300 次变成 44 */
+export const MAX_CYCLE = 255;
 export const MAX_DELAY = 65535;
+
+// 键名在宏文本里原样保存，但「;」键的显示名就是分隔符本身：旧版本写出 item[i]:;,20,true;，读回时整条宏被丢掉。
+// 现在含分隔符的键名改存 KeyboardEvent.code（Semicolon），读的时候两种都认
+const unsafeKey = /[;,:|]/;
+const keyToText = (key) => (unsafeKey.test(key) && keynameToKeycode(key)) || key;
+const keyFromText = (s) => (keynameToHid(s) ? s : keycodeToKeyname(s) || null);
+
+/** item[i] 的值；兼容旧版本写出的「;」键（item[i]:;,20,true;） */
+function itemValue(str, i) {
+  const tag = `item[${i}]:`;
+  const at = str.indexOf(tag);
+  if (at === -1) return null;
+  const start = at + tag.length;
+  const from = str[start] === ';' && str[start + 1] === ',' ? start + 1 : start;
+  const end = str.indexOf(';', from);
+  return end === -1 ? null : str.substring(start, end);
+}
 
 export class STMacroItem {
   constructor(key, delay, press) {
@@ -46,7 +70,7 @@ export class STMacro {
     s += `looptype:${this.looptype};`;
     s += `cycle:${this.cycle};`;
     this.item.forEach((it, i) => {
-      s += `item[${i}]:${it.key},${it.delay},${it.press};`;
+      s += `item[${i}]:${keyToText(it.key)},${it.delay},${it.press};`;
     });
     return s;
   }
@@ -63,16 +87,17 @@ export class STMacro {
     s = findValForKeyNumber(str, 'cycle');
     if (s == null) return false;
     this.cycle = Math.min(s, MAX_CYCLE);
-    for (let i = 0; i < MAX_ACTION; i++) {
-      s = findValForKey(str, `item[${i}]`);
+    for (let i = 0; i < LEGACY_MAX_ACTION; i++) {
+      s = itemValue(str, i);
       if (s == null) break;
       const arr = s.split(',');
       if (arr.length !== 3) return false;
-      if (keynameToHid(arr[0]) === 0) return false;
+      const key = keyFromText(arr[0]);
+      if (!key) return false;
       const delay = stringToNumber(arr[1]);
       if (delay == null) return false;
       if (arr[2] !== 'true' && arr[2] !== 'false') return false;
-      this.item.push(new STMacroItem(arr[0], delay, arr[2] === 'true'));
+      this.item.push(new STMacroItem(key, delay, arr[2] === 'true'));
     }
     return true;
   }
@@ -129,12 +154,14 @@ export function macroToHw(t, bufferID) {
   if (t.looptype === lpCycle) loop = 2;
   else if (t.looptype === lpUntilKeyRelease) loop = 0;
   else if (t.looptype === lpUntilAnyKey) loop = 1;
+  // 旧版本留下的 71 个动作的"循环 N 次"宏没有结束标记，会一直循环（见 MAX_ACTION）：只写前 70 个
+  const items = t.looptype === lpCycle ? t.item.slice(0, MAX_ACTION) : t.item;
   b[0] = bufferID & 255;
   b[1] = loop;
-  b[2] = t.cycle & 255;
-  b[3] = (t.cycle >> 8) & 255;
+  b[2] = Math.max(0, Math.min(MAX_CYCLE, Number(t.cycle) || 0));
+  b[3] = 0; // 固件不读
   let k = 4;
-  for (const it of t.item) {
+  for (const it of items) {
     b[k] = (it.press ? 0 : 128) | 1;
     b[k + 1] = keynameToHid(it.key);
     b[k + 2] = it.delay & 255;
@@ -149,7 +176,7 @@ export function macroToHw(t, bufferID) {
   b[292] = 111;
   b[293] = 49 + bufferID;
   b[294] = 0;
-  const size = (t.item.length + 1) * 4 + 128;
+  const size = (items.length + 1) * 4 + 128;
   b[304] = size & 255;
   b[305] = (size >> 8) & 255;
   b[306] = (size >> 16) & 255;
@@ -164,10 +191,10 @@ export function macroToHw(t, bufferID) {
   b[313] = (uid >> 8) & 255;
   b[314] = (uid >> 16) & 255;
   b[315] = (uid >> 24) & 255;
-  const len = t.item.length * 2;
+  const len = items.length * 2;
   b[316] = len & 255;
   b[317] = (len >> 8) & 255;
-  b[318] = t.item.length;
+  b[318] = items.length;
   b[319] = 0;
   return b;
 }

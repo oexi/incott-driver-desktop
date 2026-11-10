@@ -22,6 +22,9 @@ const pages = {
   macros: MacrosPage,
 };
 const pageComp = computed(() => pages[state.page] || ButtonsPage);
+// 换配置时重建页面（播放切换动画、重置编辑状态）；宏是全局的，宏页不随配置重建——否则鼠标上的「配置切换」键、
+// 状态包跟随槽位都会把没保存的编辑和正在录制的宏丢掉
+const pageKey = computed(() => (state.page === 'macros' ? 'macros' : state.page + state.curIndex));
 const platform = window.desktop?.platform || 'web';
 
 onMounted(() => {
@@ -43,7 +46,7 @@ onMounted(() => {
             <FirstRunBanner />
             <div class="page-scroll">
               <Transition name="page">
-                <component :is="pageComp" :key="state.page + state.curIndex" />
+                <component :is="pageComp" :key="pageKey" />
               </Transition>
             </div>
           </main>

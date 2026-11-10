@@ -7,7 +7,8 @@ import { t } from '../i18n.js';
 
 const installing = ref(false);
 const installResult = ref(null);
-const busy = computed(() => state.phase === 'connecting');
+// 诊断时会临时打开设备、读完再关掉：这期间连接，诊断结束时会把设备从新连接底下关掉
+const busy = computed(() => state.phase === 'connecting' || state.diagRunning);
 const heroImg = './products/G23.webp';
 
 const RULES = `sudo tee /etc/udev/rules.d/70-incott-mouse.rules >/dev/null <<'EOF'
@@ -68,7 +69,7 @@ function copyRules() {
           <div v-else class="st-head">{{ t.noDevice }}</div>
           <p class="st-desc">{{ state.error ? state.error.message : t.noDeviceHint }}</p>
           <div class="row">
-            <button class="btn primary lg" @click="userConnect()"><Plug :size="18" />{{ t.connect }}</button>
+            <button class="btn primary lg" :disabled="state.diagRunning" @click="userConnect()"><Plug :size="18" />{{ t.connect }}</button>
             <!-- 连接失败（如型号不受支持）或找不到设备时最需要原始数据 -->
             <button v-if="state.error || !state.scanning" class="btn ghost" :disabled="state.diagRunning" @click="copyDiagnostics">
               <LoaderCircle v-if="state.diagRunning" :size="15" class="spin" />

@@ -61,7 +61,8 @@ export class MockHidDevice extends EventTarget {
     const c = this.cur;
     // 紧凑布局（固件 sub_1000E410）：d3–d5 当前档的 X / Y 硬件值，d6 = LOD << 4 | Motion Sync
     const x = c.dpi[c.dpiIx] ?? 0;
-    const bytes = [(s.charging ? 128 : 0) | s.power, (c.dpiIx << 4) | c.rateIx, (c.debounce & 63) | (s.slot << 6), ((x >> 8) & 15) | (((x >> 8) & 15) << 4), x & 255, x & 255, (c.sensor[0] << 4) | c.sensor[3], 0];
+    const y = c.dpiy?.[c.dpiIx] ?? x;
+    const bytes = [(s.charging ? 128 : 0) | s.power, (c.dpiIx << 4) | c.rateIx, (c.debounce & 63) | (s.slot << 6), ((x >> 8) & 15) | (((y >> 8) & 15) << 4), x & 255, y & 255, (c.sensor[0] << 4) | c.sensor[3], 0];
     const data = new DataView(new Uint8Array(bytes).buffer);
     const ev = new Event('inputreport');
     ev.device = this;
@@ -80,7 +81,9 @@ export class MockHidDevice extends EventTarget {
         c.rateIx = b[1];
         break;
       case 2:
+        // 第 7 字节：0 = X / Y 一起，1 = 只改 X，2 = 只改 Y（Y 单独记在 dpiy，没设过的档 Y = X）
         if (b[7] !== 2) c.dpi[b[1]] = b[2] | (b[3] << 8);
+        if (b[7] !== 1) (c.dpiy ||= [])[b[1]] = b[2] | (b[3] << 8);
         break;
       case 3:
         c.levels = b[1];
@@ -147,11 +150,14 @@ export class MockHidDevice extends EventTarget {
       case 0x81:
         r[2] = c.rateIx;
         break;
-      case 0x82:
+      case 0x82: {
+        // 第 2 字节为 0 / 1 读 X，2 读 Y（固件 1.4.x）
+        const v = this.last[2] >= 2 ? (c.dpiy?.[sub] ?? c.dpi[sub]) : c.dpi[sub];
         r[2] = sub;
-        r[3] = c.dpi[sub] & 255;
-        r[4] = c.dpi[sub] >> 8;
+        r[3] = v & 255;
+        r[4] = v >> 8;
         break;
+      }
       case 131:
         r[2] = c.levels;
         r[3] = c.dpiIx;

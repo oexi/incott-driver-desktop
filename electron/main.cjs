@@ -176,12 +176,12 @@ function createMainWindow() {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+  // 应用只有一个页面，不会自己跳转：其它导航一律拦下。以前只拦 http(s)，把文件拖进窗口时会打开那个文件、替换整个界面
+  // （无边框窗口连关闭按钮都没了），被打开的页面还能用 preload 暴露的全部接口
   mainWindow.webContents.on('will-navigate', (e, url) => {
     if (DEV_URL && url.startsWith(DEV_URL)) return;
-    if (/^https?:/i.test(url)) {
-      e.preventDefault();
-      shell.openExternal(url);
-    }
+    e.preventDefault();
+    if (/^https?:/i.test(url)) shell.openExternal(url);
   });
 
   if (DEV_URL) mainWindow.loadURL(DEV_URL);

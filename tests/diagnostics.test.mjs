@@ -315,7 +315,7 @@ test('宏只导出结构，不含录制的按键内容；配置里引用了已�
   const text = await collectDiagnostics();
   assert.doesNotMatch(text, /item\[/);
   assert.doesNotMatch(text, /my login/);
-  assert.match(text, /#1 uid=4242 actions=9\/71 unbalanced=1 total-delay=125ms loop=cycle×1 bound=P1-B4 hw=ok/);
+  assert.match(text, /#1 uid=4242 actions=9\/70 unbalanced=1 total-delay=125ms loop=cycle×1 bound=P1-B4 hw=ok/);
   assert.match(text, /⚠ 配置里绑定的宏已不在宏库中：P1-B5 uid=999/);
   store.state.macros.list.splice(0);
   await cleanup();

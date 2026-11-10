@@ -217,6 +217,7 @@ async function processQueue() {
     const what = job.run ? 'sync' : `apply ${flagNames(job.flag)}`;
     // 不用问时不 await：任务和以前一样立即开始（连点配置时第一个点的已经开始写）
     const awake = !dev || deferred || !!job.superseded?.() || !mayBeAsleep(dev) || (await ensureOnline(dev, what));
+    const woke = awake === 'woke';
     if (!awake) {
       logEvent(`${what} skipped: the mouse did not wake up`);
       // 配置里已经是新值、鼠标里还不是：标记这个槽位，下次进入时以配置为准写进去
@@ -245,6 +246,8 @@ async function processQueue() {
       setSlotState(job.profile, 'stale');
       logEvent(`apply ${flagNames(job.flag)} for profile ${job.profile + 1} deferred: the mouse is in slot ${hwSlot + 1}`);
       ok = true;
+    } else if (dev && state.hwSlots && (woke || slotGuess || slotUnsure) && !(await confirmSlot(dev, job))) {
+      ok = true; // 鼠标在别的槽位：修改已记到配置上，进入那个槽位时写进去
     } else if (dev && curProfile.value) {
       const pf = state.hwSlots ? state.profiles.list[job.profile] : curProfile.value;
       // 绑定了已不存在的宏的按键先恢复默认，让界面与写入鼠标的内容一致
@@ -316,13 +319,38 @@ function mayBeAsleep(dev) {
   return dev.iswireless && dev.linkOnline != null && Date.now() - Math.max(dev.lastInputAt, dev.lastOnlineAt) >= AWAKE_RECENT;
 }
 
+/** 返回 true（在线）/ 'woke'（等它醒过来了）/ false（没醒） */
 async function ensureOnline(dev, what) {
   if (!(await dev.readMatchInfo()) || dev.linkOnline !== 0) return true;
   logEvent(`${what}: mouse offline (asleep?), waiting for it to wake up`);
   toast(t.value.mouseAsleep, 'warn', 6000);
   const ok = await dev.waitOnline(WAKE_TRIES);
   logEvent(`${what}: mouse ${ok ? 'woke up' : 'did not wake up'} after ${dev.onlineWaitMs}ms`);
-  return ok;
+  return ok && 'woke';
+}
+
+/**
+ * 板载配置：鼠标刚醒、或软件还不确定它在哪个槽位时，写之前先读一次槽位。睡着前鼠标可能已经换了槽位（切换后马上睡着、
+ * 连接时没回答只能猜），直接写会写进别的槽位，再被那个配置读走。返回能不能照常写；不能时这个修改记到配置上，界面跟到鼠标那里
+ */
+async function confirmSlot(dev, job) {
+  const q = await dev.readHwSlot();
+  if (state.device !== dev) return false;
+  if (q == null) return true; // 读不到：照旧
+  const guessed = slotGuess;
+  slotGuess = false;
+  slotUnsure = false;
+  if (q === hwSlot) {
+    if (guessed) {
+      logEvent(`onboard slots: slot ${hwSlot + 1} confirmed before writing`);
+      queueSync(hwSlot);
+    }
+    return true;
+  }
+  setSlotState(job.profile, 'stale');
+  logEvent(`apply ${flagNames(job.flag)} for profile ${job.profile + 1} deferred: the mouse is actually in slot ${q + 1}`);
+  followHw(q);
+  return false;
 }
 
 /** 刚才的命令没有回应时，鼠标是不是掉线了（接收器报告不在线）。有线、读不到在线标志时算在线 */
@@ -403,6 +431,8 @@ async function scanAndConnect() {
 
 /** 用户点击"连接设备"：先找已授权设备，找不到再调用 requestDevice */
 export async function userConnect() {
+  // 诊断正在临时打开设备（见 diagnostics.js probe）：它结束时会关掉设备，这时连接会连上一个随后被关掉的设备
+  if (diag.running) return;
   state.error = null;
   let hid = pickDevice(await grantedDevices());
   if (!hid && navigator.hid) {
@@ -562,6 +592,7 @@ let switching = null; // 正在由软件切换到的槽位
 let switchSeen = false; // 已收到确认切换的状态包
 let followAfter = null; // 切换期间鼠标上的键又换到的槽位
 let slotGuess = false; // 槽位是按上次的记录猜的（无线时鼠标没回答，可能在休眠），等第一个状态包确认
+let slotUnsure = false; // 切换后鼠标睡着了、界面退回了原来的配置：鼠标实际可能已经在新槽位，下一个状态包或写入前读一次确认
 const SLOT_STATES = ['fresh', 'synced', 'stale'];
 
 function loadJson(key) {
@@ -599,6 +630,8 @@ const macroHwKey = (devname, slot = null) => (slot == null ? `macrohw_${devname}
 const pendingKey = (devname) => `pendingwrite_${devname}`;
 const modeKey = (devname) => `profilemode_${devname}`; // 'pc' | 'slots'
 const slotStateKey = (devname) => `hwslots_${devname}`;
+// 首次使用时鼠标不在线（无线鼠标在休眠 / 没开）：配置只是默认值，下次连上时仍按首次使用从鼠标读进来
+const unreadKey = (devname) => `profilesunread_${devname}`;
 // 旧版本（跟随硬件槽位）留下的记录
 const LEGACY_KEYS = ['slotsync_', 'slotstate_', 'softswitch_', 'statusseen_'];
 
@@ -700,7 +733,7 @@ function effectiveKey(pf, i) {
   return k.major === C.fJuji && !state.macros.find(k.itemdata) ? C.dvar.key[i] : k;
 }
 
-const blankMouse = () => ({ rate: null, levels: null, cur: null, dpi: [], lod: null, ripple: null, fixline: null, motion: null, sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null });
+const blankMouse = () => ({ rate: null, levels: null, cur: null, dpi: [], dpiy: [], lod: null, ripple: null, fixline: null, motion: null, sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null });
 
 /** 写入成功后更新 mouse：与 device.apply 写入的项目一一对应 */
 function trackWrite(m, pf, flag, index, dev, { sensorModeHi = 0, sensorModeAnyRate = false } = {}) {
@@ -715,8 +748,8 @@ function trackWrite(m, pf, flag, index, dev, { sensorModeHi = 0, sensorModeAnyRa
   if (flag & C.apDpi) {
     pf.dpi.forEach((x, i) => {
       if (index !== 255 && i !== index) return;
-      // X / Y 分开时读回来的只有 X，记成"不知道"，下次照写
-      m.dpi[i] = pf.dpiy[i] === x ? C.getHwForDpi(x, dev.sensor) : null;
+      m.dpi[i] = C.getHwForDpi(x, dev.sensor);
+      (m.dpiy ||= [])[i] = C.getHwForDpi(pf.dpiy[i], dev.sensor);
     });
   }
   if (flag & C.apDpiLevel) {
@@ -779,14 +812,19 @@ export function mouseDiff(pf, raw, dev) {
     }
     // 按键码只说明这个键是宏，装的是哪个宏要看记录
     if (!diff && k0 === k && k.major === C.fJuji) diff = macroHw[i] !== macroSig(state.macros.find(k.itemdata), i);
+    // 鼠标里是软件还原不了的按键码（例如官方驱动设的宏），软件也没往这里写过宏，而配置里这个键还是默认功能：是在别的驱动里
+    // 设的，保留，不用默认功能把它覆盖掉（以前切换一次配置再切回来就被覆盖）。用户自己在软件里改这个键时照常写入（不经过这里）
+    if (diff && raw.keys[i] != null && keyFromHw(raw.keys[i], raw.fire) == null && macroHw[i] == null && code >>> 0 === keyToHw(C.dvar.key[i], i) >>> 0) diff = false;
     if (diff) keys.push(i);
   });
   if (keys.length) jobs.push([C.apKey, keys.length === 1 ? keys[0] : 255]);
   const dpis = [];
   pf.dpi.forEach((x, i) => {
     const hw = C.getHwForDpi(x, dev.sensor);
-    // X / Y 分开的档位读不出 Y，照写
-    if (hw !== -1 && (pf.dpiy[i] !== x || neq(raw.dpi[i], hw))) dpis.push(i);
+    // 读到了 Y 就比 Y；没读到（旧版本记下的镜像、不分轴的传感器）时 X / Y 分开的档照写
+    const ry = raw.dpiy?.[i];
+    const yDiff = ry != null ? ry !== C.getHwForDpi(pf.dpiy[i], dev.sensor) : pf.dpiy[i] !== x;
+    if (hw !== -1 && (yDiff || neq(raw.dpi[i], hw))) dpis.push(i);
   });
   if (dpis.length) jobs.push([C.apDpi, dpis.length === 1 ? dpis[0] : 255]);
   let flag = 0;
@@ -825,7 +863,7 @@ function keyFromHw(code, fire) {
  * 把鼠标里和配置不一样的项读进配置（只改不一样的项，读不到的不动），返回改了哪些。
  * 对应官方连接时的 sub_4323B0（它整套读进来）；这里只动不同的项，X / Y 分开的 DPI 在 X 没变时保留。
  */
-function adoptFromMouse(pf, raw, dev) {
+function adoptFromMouse(pf, raw, dev, { receiverLED = true } = {}) {
   const changed = new Set();
   const st = C.getStDPI(dev.sensor);
   const toUi = (hw) => {
@@ -845,10 +883,17 @@ function adoptFromMouse(pf, raw, dev) {
   }
   pf.dpi.forEach((x, i) => {
     const ui = raw.dpi[i] == null ? null : toUi(raw.dpi[i]);
-    if (ui == null || C.getHwForDpi(x, dev.sensor) === raw.dpi[i]) return;
-    pf.dpi[i] = ui;
-    pf.dpiy[i] = ui;
-    changed.add('dpi');
+    // 读到了 Y（能分轴的传感器）就分别采用；读不到时和以前一样 Y 跟着 X
+    const uy = st?.xy && raw.dpiy?.[i] != null ? toUi(raw.dpiy[i]) : null;
+    if (ui != null && C.getHwForDpi(x, dev.sensor) !== raw.dpi[i]) {
+      pf.dpi[i] = ui;
+      if (uy == null) pf.dpiy[i] = ui;
+      changed.add('dpi');
+    }
+    if (uy != null && C.getHwForDpi(pf.dpiy[i], dev.sensor) !== raw.dpiy[i]) {
+      pf.dpiy[i] = uy;
+      changed.add('dpi');
+    }
   });
   if (raw.cur != null && raw.cur < pf.dpi.length && raw.cur !== pf.curDpi) {
     pf.curDpi = raw.cur;
@@ -887,7 +932,7 @@ function adoptFromMouse(pf, raw, dev) {
     pf.sleeptime = raw.sleeptime;
     changed.add('sleeptime');
   }
-  if (dev.is8KReceiver && raw.receiverLED != null && raw.receiverLED !== pf.receiverLED) {
+  if (receiverLED && dev.is8KReceiver && raw.receiverLED != null && raw.receiverLED !== pf.receiverLED) {
     pf.receiverLED = raw.receiverLED;
     changed.add('receiverLED');
   }
@@ -981,9 +1026,13 @@ async function writeProfile(dev, p, { settle = false } = {}) {
 /** 板载配置：鼠标换到了槽位 p，交换各槽位的已知设置 */
 function moveToSlot(p) {
   slotMem[hwSlot] = mouse;
+  // 接收器灯效存在接收器里、各槽位共用：带到新槽位那份记录里（不知道时记成不知道）
+  const led = mouse ? mouse.receiverLED : null;
   hwSlot = p;
   mouse = slotMem[p];
   slotMem[p] = null;
+  if (mouse) mouse.receiverLED = led;
+  slotUnsure = false;
   macroHw = loadMacroHw(p);
   state.slot = p;
 }
@@ -1042,6 +1091,8 @@ async function enterSlot(dev, p) {
         state.curIndex = from; // 界面回到鼠标确认过的配置；鼠标醒来后的状态包会带着它实际所在的槽位（见 followHw）
         persist();
       }
+      // 鼠标可能已经切过去了才睡着：之后写入前先确认（见 confirmSlot）
+      if (why === 'asleep') slotUnsure = true;
       return false;
     }
     if (!ok) {
@@ -1087,7 +1138,8 @@ async function syncSlot(dev, p, started = Date.now()) {
     return true;
   }
   if (st === 'synced' && read) {
-    const changed = adoptFromMouse(pf, mouse, dev);
+    // 接收器灯效不属于槽位：读到的是上一个配置写的，不算这个配置在软件外改过，按配置写（mouseDiff）
+    const changed = adoptFromMouse(pf, mouse, dev, { receiverLED: false });
     alignSwitchKeys(p);
     if (changed.length) {
       persist();
@@ -1146,7 +1198,11 @@ function enterDevice(dev, raw, hw = null) {
   const st = C.getStDPI(dev.sensor);
   const list = new StProfileList();
   const { count, index } = loadProfiles(name, list);
-  state.firstRun = count <= 0;
+  // 上次首次使用时鼠标不在线，配置只是默认值：这次仍按首次使用，从鼠标读进来
+  state.firstRun = count <= 0 || lsGet(unreadKey(name)) != null;
+  // 这次也读不到（无线鼠标还在休眠 / 没开）：先用默认配置，但不能当成"鼠标里就是这些"——之后连上时会被写进各个槽位
+  const unreachable = !raw || (dev.iswireless && dev.linkOnline === 0);
+  if (state.firstRun) lsSet(unreadKey(name), unreachable ? '1' : null);
   for (let i = list.list.length; i < C.MAX_ONBOARD; i++) {
     const p = new StProfile(`${t.value.onboardProfile}${i + 1}`, C.dvar, dev.sensor);
     p.inside = true;
@@ -1177,7 +1233,8 @@ function enterDevice(dev, raw, hw = null) {
   switching = null;
   followAfter = null;
   slotMem = [null, null, null, null];
-  mouse = raw ? { ...raw, dpi: raw.dpi.slice(), keys: raw.keys.slice(), fire: raw.fire && raw.fire.slice() } : null;
+  slotUnsure = false;
+  mouse = raw ? { ...raw, dpi: raw.dpi.slice(), dpiy: (raw.dpiy || []).slice(), keys: raw.keys.slice(), fire: raw.fire && raw.fire.slice() } : null;
 
   const mode = lsGet(modeKey(name));
   // 无线时鼠标可能在休眠，没回答 [0x85,6]：上次是板载配置就沿用，等第一个状态包确认槽位
@@ -1206,7 +1263,10 @@ function enterPcMode(dev, raw, idx, mode) {
   const savedSlots = loadJson(slotStateKey(name));
   const legacy = !state.firstRun && (mode === 'slots' ? !Array.isArray(savedSlots) || savedSlots[idx] !== 'synced' : mode !== 'pc');
   let push = false;
-  if (state.firstRun) {
+  if (state.firstRun && lsGet(unreadKey(name)) != null) {
+    // 首次使用但鼠标不在线：什么都没读到，先用默认配置、不写入；鼠标上线后重新连接时再从鼠标读进来
+    logEvent('first run: the mouse is offline, profiles stay at defaults until it can be read');
+  } else if (state.firstRun) {
     // 首次使用：4 个配置都从鼠标现在的设置开始，切换配置不会突然变回默认值
     if (raw) for (const p of list.list) adoptFromMouse(p, raw, dev);
     logEvent(`first run: all 4 profiles start from the mouse (rate=${raw?.rate} dpi=${raw?.cur}/${raw?.levels})`);
@@ -1318,7 +1378,10 @@ function onStatus(e) {
   state.info.power = s.power;
   if (s.rate) state.info.rate = s.rate;
   // 旧布局的状态包里没有槽位
-  if (s.profileIndex != null) state.slot = s.profileIndex;
+  if (s.profileIndex != null) {
+    state.slot = s.profileIndex;
+    slotUnsure = false; // 状态包带着鼠标实际所在的槽位，下面据此跟随
+  }
   if (s.profileIndex == null) {
     /* 没有槽位信息：不处理槽位 */
   } else if (state.hwSlots) {
@@ -1351,7 +1414,8 @@ function onStatus(e) {
     }
     lastHwSlot = s.profileIndex;
   }
-  if (state.applying || syncQueued) return;
+  // 队列里还有没写完的修改（包括正等鼠标醒来的）：这时鼠标里还是旧值，读回来会把刚改的值改回去
+  if (state.applying || syncQueued || state.pending) return;
   const pf = curProfile.value;
   if (!pf) return;
   if (s.rate) {

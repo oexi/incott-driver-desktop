@@ -307,6 +307,7 @@ export class IncottDevice extends EventTarget {
     this.onlineWaitMs = null; // 连接时等鼠标上线等了多久（见 waitOnline），没等过为 null
     this.lastOnlineAt = 0; // 最近一次接收器报告鼠标在线（8E 01 r[6] = 1）的时间
     this.statusLayout = null; // 状态包布局：'packed' | 'old'（见 statusLayoutOf）
+    this.fw14 = false; // 读到过硬件槽位（固件 1.4.x，见 probeHwSlot）
     this._macroPacket = 0;
     this._onInput = (e) => {
       if (e.device !== this.hid) return;
@@ -663,7 +664,10 @@ export class IncottDevice extends EventTarget {
       const r = await this._retry(() => this._fromData(0x85, 7));
       if (!r || r[1] !== 7) return null;
     }
-    return this.readHwSlot();
+    const slot = await this.readHwSlot();
+    // 能读到槽位的是 1.4.x 固件：[0x82,档,2] 读 Y 只在这一版上确认过（见 readSlot）
+    if (slot != null) this.fw14 = true;
+    return slot;
   }
 
   /** [5,6,N]：切到硬件槽位 N（官方新版桌面驱动 sub_44A1C0） */
@@ -700,9 +704,9 @@ export class IncottDevice extends EventTarget {
     return out;
   }
 
-  /** 带子序号的读命令（0x82 / 0x84 / 0x85 …）：回包 r[1] 必须回显子序号 */
-  async _readSub(cmd, sub) {
-    const r = await this._fromData(cmd, sub);
+  /** 带子序号的读命令（0x82 / 0x84 / 0x85 …）：回包 r[1] 必须回显子序号；arg 为第 2 字节（0x82 的轴） */
+  async _readSub(cmd, sub, arg) {
+    const r = await this._fromData(cmd, sub, arg);
     return r && r[1] === sub ? r : null;
   }
 
@@ -732,7 +736,7 @@ export class IncottDevice extends EventTarget {
    * @param quick    只读回报率、DPI、LOD、消抖、休眠，约 0.4 秒
    */
   async readSlot(dpiCount = 6, { quick = false } = {}) {
-    const out = { rate: null, levels: null, cur: null, dpi: [], lod: null, ripple: null, fixline: null, motion: null };
+    const out = { rate: null, levels: null, cur: null, dpi: [], dpiy: [], lod: null, ripple: null, fixline: null, motion: null };
     Object.assign(out, { sensormode: null, debounce: null, fire: null, sleeptime: null, keys: [], receiverLED: null, starZero: false });
     const read = (cmd) => this._retry(() => this._fromData(cmd));
     const readSub = (cmd, sub) => this._retry(() => this._readSub(cmd, sub));
@@ -743,10 +747,18 @@ export class IncottDevice extends EventTarget {
     r = await read(0x83);
     if (r) [out.levels, out.cur] = [r[1], r[2]];
     this._keepDpiExtra(r);
+    // [0x82, 档, 轴]：轴为 0 / 1 读 X，2 读 Y（固件 1.4.x，IDA：338.bin 0x82 回包）。以前只读 X，官方驱动设的分轴 Y
+    // 读不回来（连接时被改成 Y = X），分轴的档每次同步都要重写。更早的固件没核实过（可能回 X，会把配置里的 Y 改掉），不读
+    const xy = this.fw14 && getStDPI(this.sensor)?.xy !== false;
     for (let i = 0; i < dpiCount; i++) {
       r = await readSub(0x82, i);
       if (r) star.push(r[2], r[3]);
       out.dpi.push(r ? r[2] | (r[3] << 8) : null);
+      if (!xy) continue;
+      r = await this._retry(() => this._readSub(0x82, i, 2));
+      const y = r ? r[2] | (r[3] << 8) : null;
+      // 读到 0（50 DPI）而 X 不是：多半是不支持的固件回的空值，当作不知道
+      out.dpiy.push(y === 0 && out.dpi[i] ? null : y);
     }
     const sensorKeys = quick ? ['lod'] : ['lod', 'ripple', 'fixline', 'motion', 'sensormode'];
     for (let i = 0; i < sensorKeys.length; i++) {
@@ -776,6 +788,7 @@ export class IncottDevice extends EventTarget {
       out.starZero = true;
       out.rate = out.lod = out.ripple = out.fixline = out.motion = out.sensormode = out.debounce = out.fire = out.receiverLED = null;
       out.dpi = out.dpi.map(() => null);
+      out.dpiy = out.dpiy.map(() => null);
     }
     return out;
   }
