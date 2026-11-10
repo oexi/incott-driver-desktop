@@ -190,10 +190,13 @@ export function flagNames(flag) {
   return FLAG_NAMES.filter(([b]) => flag & b).map(([, n]) => n).join('+') || String(flag);
 }
 
-/** 把任意异步任务放进写入队列（与 chunk86 串行，执行期间 state.applying = true，状态包暂不处理） */
-function enqueue(run) {
+/**
+ * 把任意异步任务放进写入队列（与 chunk86 串行，执行期间 state.applying = true，状态包暂不处理）。
+ * superseded()：任务执行前已经被取代（例如连点了几个配置），执行时会直接跳过，不用先确认鼠标醒着
+ */
+function enqueue(run, { superseded = null } = {}) {
   return new Promise((resolve) => {
-    queue.push({ run, resolve });
+    queue.push({ run, resolve, superseded });
     state.pending++;
     if (!processing) processQueue();
   });
@@ -209,14 +212,24 @@ async function processQueue() {
     const dev = state.device;
     let ok = false;
     if (job.overlay) state.progress = { visible: true, pct: 0 };
-    // 要发给鼠标的任务先确认鼠标醒着（只是记下"以后再写"的不用）
+    // 要发给鼠标的任务先确认鼠标醒着（只是记下"以后再写"的、已被取代的不用）
     const deferred = !job.run && dev && state.hwSlots && job.profile !== hwSlot;
+    const what = job.run ? 'sync' : `apply ${flagNames(job.flag)}`;
     // 不用问时不 await：任务和以前一样立即开始（连点配置时第一个点的已经开始写）
-    const awake = !dev || deferred || !mayBeAsleep(dev) || (await ensureOnline(dev, job.run ? 'sync' : `apply ${flagNames(job.flag)}`));
+    const awake = !dev || deferred || !!job.superseded?.() || !mayBeAsleep(dev) || (await ensureOnline(dev, what));
     if (!awake) {
-      logEvent(`${job.run ? 'sync' : `apply ${flagNames(job.flag)}`} skipped: the mouse did not wake up`);
+      logEvent(`${what} skipped: the mouse did not wake up`);
       // 配置里已经是新值、鼠标里还不是：标记这个槽位，下次进入时以配置为准写进去
       if (!job.run && state.hwSlots) setSlotState(job.profile, 'stale');
+      // 跳过的是最新的切换任务：它不会再执行，也就不会清掉 syncQueued——不清的话之后的状态包都会被忽略
+      if (job.run && !job.superseded?.()) syncQueued = false;
+      // 切换配置还没开始就因为鼠标没醒放弃了：界面回到鼠标实际所在的槽位（以前停在新点的配置上，和鼠标对不上；
+      // 实测 G23V2：从配置 4 点配置 1 后界面是配置 1、鼠标还在槽位 4）。等待期间又点了别的配置的不退，让新的那个接着来
+      if (job.run && state.hwSlots && !job.superseded?.() && state.curIndex !== hwSlot) {
+        logEvent(`profile ${state.curIndex + 1} not reached: back to profile ${hwSlot + 1}, where the mouse is`);
+        state.curIndex = hwSlot;
+        persist();
+      }
     } else if (job.run) {
       state.applying = true;
       try {
@@ -272,7 +285,10 @@ async function processQueue() {
       await sleep(350);
       state.progress = { visible: false, pct: 0 };
     }
-    if (!ok && state.device) toast(awake ? t.value.applyFailed : t.value.mouseAsleepFailed, 'error', awake ? 4500 : 7000);
+    if (!ok && state.device) {
+      if (awake) toast(t.value.applyFailed, 'error', 4500);
+      else toast(job.run && state.hwSlots ? t.value.slotSwitchNoWake : t.value.mouseAsleepFailed, 'error', 7000);
+    }
     allOk &&= ok;
     const i = queue.indexOf(job);
     if (i >= 0) {
@@ -894,12 +910,15 @@ function adoptFromMouse(pf, raw, dev) {
 function queueSync(p, { settle = false } = {}) {
   const token = ++syncToken;
   syncQueued = true;
-  return enqueue(async () => {
-    if (token !== syncToken) return true; // 已被新的任务取代（连点了几个配置）
-    syncQueued = false;
-    if (!state.device) return false;
-    return state.hwSlots ? enterSlot(state.device, p) : writeProfile(state.device, p, { settle });
-  });
+  return enqueue(
+    async () => {
+      if (token !== syncToken) return true; // 已被新的任务取代（连点了几个配置）
+      syncQueued = false;
+      if (!state.device) return false;
+      return state.hwSlots ? enterSlot(state.device, p) : writeProfile(state.device, p, { settle });
+    },
+    { superseded: () => token !== syncToken }
+  );
 }
 
 /**
