@@ -30,7 +30,7 @@ const { t } = await import('../src/i18n.js');
 const { markRaw } = await import('vue');
 
 /** 按实测 G23V2（无线 8K）回包构造的假设备 */
-function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6, onlineAfter = 0, failOnce = [] } = {}) {
+function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = false, rx1k = false, stages = 6, onlineAfter = 0, noLinkFor = 0, failOnce = [] } = {}) {
   const sent = [];
   const keys = { ...[0x00f00001, 0x00f10001, 0x00f20001, 0x00f30001, 0x00f40001, 0x00030007], ...keyOverride };
   // zeroStar：模拟不支持官方桌面驱动专用读命令的固件（回包除回显外全 0）
@@ -40,9 +40,13 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
   // 其余读命令只回全 0（连回显也没有）
   let matchQueries = 0;
   const offline = () => onlineAfter > 0 && matchQueries <= onlineAfter;
+  // noLinkFor：前 noLinkFor 次 8E 01 时接收器和鼠标之间完全没有无线连接（实测 G23V2 + 8K 接收器，鼠标插着线）：
+  // 接收器只自己回答 8F / 89，其余（连 8E 01）都回全 0、没有回显
+  const nolink = () => noLinkFor > 0 && matchQueries <= noLinkFor;
   const reply = (b) => (prev = answer(b));
   const answer = (b) => {
     if (b[0] === 0x8e && b[1] === 1) matchQueries++;
+    if (nolink() && b[0] !== 0x8f) return b[0] === 0x89 ? [0x89, 0, 0, 3, 0, 0, 0, 0] : [0, 0, 0, 0, 0, 0, 0, 0];
     if (offline() && b[0] === 0x89) return [0x89, 0, 1, 3, 0, 0, 0, 0];
     if (offline() && b[0] !== 0x8f && b[0] !== 0x8e) return [0, 0, 0, 0, 0, 0, 0, 0];
     if (zeroStar && isStar(b)) return [b[0], b[1], 0, 0, 0, 0, 0, 0];
@@ -467,6 +471,32 @@ test('Windows 上连接时偶尔读不到回包：重试后照常连上（以前
   assert.equal(dev.curOnBoard, 0);
   assert.equal(dev.errLog.length, 5);
   assert.match(dev.errLog[0].hex, /receiveFeatureReport \(cmd 143\): Failed to receive the feature report/);
+  await dev.close();
+});
+
+test('接收器和鼠标之间没有无线连接（8E 01 回全 0）：当作不在线，等它连上再读设置', async () => {
+  // 每次 readMatchInfo 读回包失败会重试 3 次，所以 9 次 8E 01 = 连接时那次加两次等待
+  const hid = fakeHid({ noLinkFor: 9 });
+  const dev = new IncottDevice(hid);
+  await dev.open();
+  assert.equal(dev.linkOnline, 1);
+  assert.ok(dev.onlineWaitMs != null, '等过鼠标上线');
+  assert.deepEqual([dev.curDpi, dev.dpiLevels], [2, 6]);
+  assert.ok(!dev.xferLog.some((e) => e.dir === 'NOTE' && /not understood/.test(e.hex)), '不能当成固件不认识 8E');
+  await dev.close();
+});
+
+test('一直没有无线连接：照旧连接，在线状态是"不在线"而不是"未知"（掉线处理才会起作用）', async () => {
+  const dev = new IncottDevice(fakeHid({ noLinkFor: 1000 }));
+  await dev.open();
+  assert.equal(dev.linkOnline, 0);
+  await dev.close();
+});
+
+test('旧版 GHERO 固件（型号码 1）8E 01 回全 0：仍按"不认识这条命令"处理', async () => {
+  const dev = new IncottDevice(fakeHid({ model: 1, noLinkFor: 1000 }));
+  await dev.open();
+  assert.equal(dev.linkOnline, null);
   await dev.close();
 });
 

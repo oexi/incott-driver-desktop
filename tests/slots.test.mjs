@@ -596,3 +596,45 @@ test('鼠标一直没醒：修改不发给鼠标，提示动一下鼠标后再�
   hid.asleep = 0;
   await store.disconnect('test');
 });
+
+test('鼠标睡着时点别的配置、一直没醒：界面回到鼠标所在的配置，提示没能切换', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  const dev = store.state.device;
+  hid.asleep = 1000;
+  dev.lastInputAt = dev.lastOnlineAt = 0;
+  await store.requestProfile(2);
+  await idle();
+  assert.equal(hid.state.slot, 0);
+  assert.equal(store.state.curIndex, 0, '界面要回到鼠标实际所在的配置');
+  assert.equal(store.state.hwSlots, true);
+  assert.ok(toasts().some((m) => /鼠标没有醒来，没能确认切换配置/.test(m)));
+  assert.ok(!toasts().some((m) => /这次修改没有写进鼠标/.test(m)), '切换配置不是"修改"');
+  // 鼠标醒来后，状态包照常处理（在鼠标上按 DPI 键，界面跟着变）
+  hid.asleep = 0;
+  assert.notEqual(pl()[0].curDpi, 4);
+  hid.cur.dpiIx = 4;
+  hid.emitStatus();
+  await idle();
+  assert.equal(pl()[0].curDpi, 4, '跳过切换后不能一直忽略状态包');
+  await store.disconnect('test');
+});
+
+test('鼠标睡着时连点两个配置：醒来后切到最后点的那个，前一个不再单独等', async () => {
+  storeProfiles();
+  const hid = mouse();
+  fillSlots(hid);
+  await connect(hid);
+  const dev = store.state.device;
+  hid.asleep = 3;
+  dev.lastInputAt = dev.lastOnlineAt = 0;
+  store.requestProfile(1);
+  store.requestProfile(2);
+  await idle();
+  assert.equal(store.state.curIndex, 2);
+  assert.equal(hid.state.slot, 2);
+  assert.deepEqual(hid.slotWrites(), [2]);
+  await store.disconnect('test');
+});

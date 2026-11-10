@@ -208,12 +208,13 @@ test('旧布局的状态包：没有槽位，不会被当成换了槽位；电�
 
 /* ------------------------------------------------- 旧固件兼容（GHERO 等） */
 
-test('连接：0x8E 有回包但不是 0x8E 的（固件不认识这条命令）也照样连接，在线状态记为未知', async () => {
+test('连接：0x8E 回的是上一条命令的残留（固件不认识这条命令）也照样连接，在线状态记为未知', async () => {
   const hid = mouse();
   const recv = hid.receiveFeatureReport;
   hid.receiveFeatureReport = async (id) => {
     const r = await recv(id);
-    if (r.getUint8(1) === 0x8e) return dv([9, 0, 0, 0, 0, 0, 0, 0, 0]); // 不回显
+    // 不回显，回的是上一条（0x8F）的残留——接收器不认识的命令实测就是这样（全 0 则是联系不上鼠标，见下一个测试）
+    if (r.getUint8(1) === 0x8e) return dv([9, 0x8f, 1, 2, 2, 0xf0, 0xf1, 0, 0]);
     return r;
   };
   await connect(hid);

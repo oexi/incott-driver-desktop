@@ -417,6 +417,8 @@ export class IncottDevice extends EventTarget {
     }
     if (!r) return null;
     this._log('F<', r);
+    // 回包除 Report ID 外全 0（连命令回显都没有）：接收器联系不上鼠标时就是这样（见 readMatchInfo）
+    this._lastReplyZero = r.byteLength > 1 && new Uint8Array(r.buffer, r.byteOffset + 1, r.byteLength - 1).every((v) => v === 0);
     // 回显不对也记下来：识别失败时正需要这份原始数据
     const key = md ?? r.getUint8(1);
     if (!(key in this.replies)) this.replies[key] = { t: Date.now() - this._t0, hex: toHex(r) };
@@ -536,8 +538,19 @@ export class IncottDevice extends EventTarget {
   }
 
   async readMatchInfo() {
+    this._lastReplyZero = false;
     const r = await this._retry(() => this._fromData(142, 1));
-    if (!r) return false;
+    if (!r) {
+      // 接收器和鼠标之间完全没有无线连接时，8E 01 连回显都没有、只回全 0（实测 G23V2 + 8K 接收器，鼠标插着线时）；
+      // 鼠标睡着时是有回显、在线标志为 0。两种都当作不在线，等它连上（以前当成"固件不认识 8E"，掉线处理全都不起作用）。
+      // 旧版 GHERO 专用固件确实不认识 8E，不套用
+      if (this._lastReplyZero && this.modelCode !== 1) {
+        this.online = false;
+        this.linkOnline = 0;
+        return true;
+      }
+      return false;
+    }
     this.online = r[6] === 1;
     // 原版随后无条件把 online 设为 true；这里另存原值，诊断时用来判断"接收器在、鼠标不在线"（例如配对丢失）
     this.linkOnline = r[6];
