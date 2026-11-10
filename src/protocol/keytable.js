@@ -127,3 +127,7 @@ export function keycodeToKeyname(code) {
   for (const k of vkPOS) if (k[0] === code) return k[1];
   return "";
 }
+export function keynameToKeycode(name) {
+  for (const k of vkPOS) if (k[1] === name) return k[0];
+  return "";
+}

@@ -103,7 +103,8 @@ function richMacro() {
   const m = new STMacro('combo-macro');
   m.uid = 1724000000123;
   m.looptype = 3;
-  m.cycle = 300;
+  // 循环次数在固件能表示的范围内（≤255）时与原版一致；超过的见下面的单独测试
+  m.cycle = 200;
   m.item = [new STMacroItem('A', 15, true), new STMacroItem('A', 300, false), new STMacroItem('LButton', 0, true), new STMacroItem('LButton', 70000 & 0xffff, false), new STMacroItem('Num5', 5, true)];
   return m;
 }
@@ -208,6 +209,42 @@ test('宏缓冲区与原版 juji_to_hw 一致', () => {
       assert.deepEqual(macroToHw(m, bid), [...orig]);
     }
   }
+});
+
+test('宏：循环次数超过 255 按 255 写入（固件只读低字节，原版 300 会变成 44 次）', () => {
+  const m = richMacro();
+  m.cycle = 300;
+  const b = macroToHw(m, 0);
+  assert.deepEqual([b[2], b[3]], [255, 0]);
+  const r = new STMacro('');
+  assert.ok(r.initByText(m.toText()));
+  assert.equal(r.cycle, 255);
+});
+
+test('宏：「;」键存成 Semicolon，旧版本写出的 item[i]:;,… 也能读回', () => {
+  const m = richMacro();
+  m.item = [new STMacroItem(';', 20, true), new STMacroItem(';', 30, false)];
+  const text = m.toText();
+  assert.match(text, /item\[0\]:Semicolon,20,true;item\[1\]:Semicolon,30,false;/);
+  const r = new STMacro('');
+  assert.ok(r.initByText(text));
+  assert.deepEqual(r.item.map((i) => [i.key, i.delay, i.press]), [[';', 20, true], [';', 30, false]]);
+  const legacy = 'magic:macro100;name:x;uid:5;looptype:3;cycle:2;item[0]:;,20,true;item[1]:;,30,false;item[2]:A,0,true;';
+  const l = new STMacro('');
+  assert.ok(l.initByText(legacy));
+  assert.deepEqual(l.item.map((i) => i.key), [';', ';', 'A']);
+  assert.deepEqual(macroToHw(l, 0).slice(4, 12), [1, 0x33, 20, 0, 129, 0x33, 30, 0]);
+});
+
+test('宏：最多 70 个动作；旧版本的 71 个动作照样读进来，「循环 N 次」只写前 70 个，后面留结束标记', () => {
+  const m = richMacro();
+  m.item = Array.from({ length: 71 }, (_, i) => new STMacroItem('A', 1, i % 2 === 0));
+  const r = new STMacro('');
+  assert.ok(r.initByText(m.toText()));
+  assert.equal(r.item.length, 71);
+  const b = macroToHw(r, 0);
+  assert.equal(b[318], 70);
+  assert.equal(b[4 + 70 * 4], 0);
 });
 
 test('宏文本格式与原版一致', () => {

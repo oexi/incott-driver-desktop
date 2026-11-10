@@ -6,3 +6,7 @@ import { applySettings } from './store.js';
 
 applySettings();
 createApp(App).mount('#app');
+
+// 拖进窗口的文件默认会被浏览器打开（主进程也会拦下这次导航）：不接受拖放
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
