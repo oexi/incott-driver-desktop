@@ -225,7 +225,7 @@ function fmtRate(r) {
             <div class="card-desc">{{ t.rateDesc }}</div>
           </div>
         </div>
-        <div class="rates">
+        <div class="rates" :style="{ '--n': rates.length }">
           <button v-for="r in rates" :key="r" class="rate" :class="{ on: effectiveRate === r, hot: r >= 4000 }" @click="setRate(r)">
             <span class="rv num">{{ fmtRate(r) }}</span>
             <span class="ru">Hz</span>
@@ -450,7 +450,9 @@ function fmtRate(r) {
 }
 .rates {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  /* 回报率始终排成一行：有几档就分几列，按钮随卡片宽度缩放（最窄时约 60px，仍放得下「125 Hz」）。
+     原来是每个至少 64px、放不下就换行，默认窗口下 8K 会被挤到第二行 */
+  grid-template-columns: repeat(var(--n), minmax(0, 1fr));
   gap: 8px;
 }
 .rate {
