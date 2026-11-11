@@ -108,4 +108,5 @@ jobs:
             - **从 1.x 升级**：2.0 起桌面外壳换成了 Tauri，软件自己保存的板载配置副本、宏库和界面设置**不会自动带过来**（鼠标里的设置不受影响）。录过宏或存过配置的，请先在旧版里导出 `.icm` / `.ict`，装好新版后再导入。
             - **Windows**：界面由系统的 WebView2 显示（Windows 11 与较新的 Windows 10 已自带）。安装版缺少时会自动安装；便携版需要系统已装有 WebView2。
             - **macOS**：需要 macOS 12 或更新版本。应用未经过 Apple 公证，首次打开若提示"已损坏"，请在终端执行 `xattr -cr "/Applications/Incott Driver.app"`。
-            - **Linux**：deb / rpm / pacman 包会自动安装 udev 规则；AppImage / tar.gz 用户可在应用内一键安装。安装后重新插拔接收器即可。pacman 包与 1.x 同名，可直接 `pacman -U` 升级。
+            - **Linux**：deb / rpm / pacman 包会自动安装 udev 规则；AppImage / tar.gz 用户可在应用内一键安装。安装后重新插拔接收器即可。
+            - **Arch（pacman）从 1.x 升级**：1.x 安装时另外创建了 `/usr/bin/incott-driver` 链接，pacman 会报文件冲突，需加 `--overwrite`：`sudo pacman -U --overwrite /usr/bin/incott-driver incott-driver-*-linux-x64.pacman`（arm64 为 `linux-aarch64`）。从 2.x 升级不需要。

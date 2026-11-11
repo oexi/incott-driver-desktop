@@ -1,6 +1,6 @@
 [package]
 name = "incott-driver"
-version = "2.0.0"
+version = "2.0.1"
 description = "Desktop driver for INCOTT mice"
 authors = ["oexi"]
 license = "MIT"
