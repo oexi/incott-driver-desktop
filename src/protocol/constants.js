@@ -12,6 +12,21 @@ export const HID_FILTERS = [
   { vendorId: VENDOR_ID, productId: PID_WIRELESS, usagePage: USAGE_PAGE, usage: USAGE },
 ];
 
+/**
+ * HID 设备里有没有能收发命令的 FF05:0001 集合（特性报告 9）。
+ * Windows 上每个顶层集合是一条单独的设备路径。部分接收器（如 1K 接收器）的配置接口有两个 FF05:0001 集合：一个只有报告 8，一个有特性报告 9。
+ * 对前者发特性报告 9，HidD_SetFeature 报"函数不正确"（issue #33）。Linux / macOS 上两个集合在同一个设备里。
+ * 集合没有任何报告信息（读不到描述符、模拟设备）时不排除。
+ */
+export function hasConfigCollection(d) {
+  return (d.collections || []).some((c) => {
+    if (c.usagePage !== USAGE_PAGE || c.usage !== USAGE) return false;
+    const feature = c.featureReports || [];
+    if (feature.some((r) => r.reportId === REPORT_ID)) return true;
+    return !feature.length && !c.inputReports?.length && !c.outputReports?.length;
+  });
+}
+
 // 按键功能大类
 export const fMouse = 1;
 export const fKeyboard = 2;

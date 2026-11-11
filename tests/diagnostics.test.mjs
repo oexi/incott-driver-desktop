@@ -534,3 +534,74 @@ test('自动判断：找不到设备、PID 不认识、没有响应、Linux 权�
   f = buildFindings({ connected: true, statusCount: 12, sinceConnect: 40, prevLog: { cleanExit: true } }, tr);
   assert.deepEqual(f, ['· 连接 40 秒内收到 12 个状态包', '· 没有发现明显异常']);
 });
+
+/**
+ * issue #33：Windows 上每个顶层集合是一条单独的设备路径，接收器的配置接口分成两个 FF05:0001 设备，按路径排序报告 8 的在前。
+ * 它没有特性报告，往它发特性报告 9 时 HidD_SetFeature 报"函数不正确"
+ */
+const report = (reportId, n) => ({ reportId, items: [{ reportSize: 8, reportCount: n }] });
+const TLC_8 = { usagePage: 0xff05, usage: 1, type: 1, inputReports: [report(8, 32)], outputReports: [report(8, 32)], featureReports: [] };
+const TLC_9 = { usagePage: 0xff05, usage: 1, type: 1, inputReports: [report(9, 32)], outputReports: [report(9, 32)], featureReports: [report(9, 8)] };
+
+function report8Hid() {
+  const hid = fakeHid();
+  hid.collections = [TLC_8];
+  hid.sendFeatureReport = async () => {
+    throw new DOMException('hidapi error: HidD_SetFeature: (0x00000001) 函数不正确。', 'NetworkError');
+  };
+  return hid;
+}
+
+test('issue #33：Windows 把配置接口拆成报告 8 / 报告 9 两个设备——连报告 9 那个，报告 8 那个不打开', async () => {
+  const r8 = report8Hid();
+  const r9 = fakeHid();
+  r9.collections = [TLC_9];
+  granted = [r8, r9];
+  store.state.phase = 'welcome';
+  store.state.error = null;
+  await store.autoConnect();
+  assert.equal(store.state.phase, 'ready');
+  assert.equal(store.state.error, null);
+  assert.equal(store.state.device.hid, r9);
+  assert.equal(r8.opens, 0);
+  assert.equal(r9.opens, 1);
+  await cleanup();
+});
+
+test('issue #33：Linux / macOS 上两个集合在同一个设备里（报告 8 在前）——照常连接', async () => {
+  const hid = fakeHid();
+  hid.collections = [TLC_8, TLC_9];
+  granted = [hid];
+  store.state.phase = 'welcome';
+  await store.autoConnect();
+  assert.equal(store.state.phase, 'ready');
+  assert.equal(store.state.device.hid, hid);
+  await cleanup();
+});
+
+test('issue #33：只有报告 8 的设备——不去连接，也不探测', async () => {
+  const r8 = report8Hid();
+  granted = [r8];
+  store.state.phase = 'welcome';
+  await store.autoConnect();
+  assert.equal(store.state.phase, 'welcome');
+  assert.equal(r8.opens, 0);
+  const text = await collectDiagnostics();
+  assert.equal(r8.opens, 0);
+  assert.match(text, /no INCOTT vendor collection granted/);
+  assert.match(text, /ff05:0001 type=1 in\[8:32B\] out\[8:32B\] feat\[\]/, '设备列表里照样列出');
+  granted = [];
+});
+
+test('issue #33：未连接时诊断只探测报告 9 的设备', async () => {
+  const r8 = report8Hid();
+  const r9 = fakeHid();
+  r9.collections = [TLC_9];
+  granted = [r8, r9];
+  const text = await collectDiagnostics();
+  granted = [];
+  assert.equal(r8.opens, 0);
+  assert.equal(r9.opens, 1);
+  assert.equal(text.match(/### Probe /g).length, 1);
+  assert.doesNotMatch(text, /HidD_SetFeature/);
+});

@@ -362,11 +362,7 @@ async function mouseWentOffline(dev) {
 /* ------------------------------------------------------------ 设备发现 */
 
 function isIncottCollection(d) {
-  return (
-    d.vendorId === C.VENDOR_ID &&
-    (d.productId === C.PID_WIRED || d.productId === C.PID_WIRELESS) &&
-    (d.collections || []).some((c) => c.usagePage === C.USAGE_PAGE && c.usage === C.USAGE)
-  );
+  return d.vendorId === C.VENDOR_ID && (d.productId === C.PID_WIRED || d.productId === C.PID_WIRELESS) && C.hasConfigCollection(d);
 }
 
 function pickDevice(list) {

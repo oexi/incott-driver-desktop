@@ -92,8 +92,9 @@ function describeHid(d) {
   return [`${hex4(d.vendorId)}:${hex4(d.productId)} "${d.productName || ''}" ${d.opened ? 'opened' : 'closed'}`, ...cols.map((c) => `    ${c}`)];
 }
 
+/** 只探测能收发命令的集合：Windows 上只有报告 8 的那个 FF05 集合探测只会得到一串 HidD_SetFeature 错误（issue #33） */
 function isIncott(d) {
-  return d.vendorId === C.VENDOR_ID && (d.collections || []).some((c) => c.usagePage === C.USAGE_PAGE && c.usage === C.USAGE);
+  return d.vendorId === C.VENDOR_ID && C.hasConfigCollection(d);
 }
 
 function fmtLog(list) {
