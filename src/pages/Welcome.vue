@@ -36,7 +36,7 @@ function copyRules() {
 <template>
   <section class="welcome">
     <div class="hero-text">
-      <div class="eyebrow">INCOTT · DESKTOP DRIVER</div>
+      <div class="eyebrow">incott · DESKTOP DRIVER</div>
       <h1>{{ t.welcomeTitle }}</h1>
       <p class="lead">{{ t.welcomeSub }}</p>
 

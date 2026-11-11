@@ -25,7 +25,17 @@ const tabs = computed(() => [
 const buttons = computed(() =>
   Array.from({ length: UI_KEY_NUM }, (_, i) => {
     const k = pf.value?.key[i];
-    return { i, name: t.value.btnName[i], label: keyLabel(k, t.value, state.macros), cat: keyCategory(k) };
+    const def = C.dvar.key[i];
+    // 与出厂默认功能不同的按键在列表里标出来
+    const changed = !!k && !!def && !k.equals(def);
+    return {
+      i,
+      name: t.value.btnName[i],
+      label: keyLabel(k, t.value, state.macros),
+      cat: keyCategory(k),
+      changed,
+      defLabel: changed ? keyLabel(def, t.value, state.macros) : '',
+    };
   })
 );
 const selKey = computed(() => pf.value?.key[sel.value]);
@@ -136,10 +146,20 @@ const swapped = computed(() => isLRSwapped());
     <section class="card map-card">
       <div class="map">
         <div class="btn-list">
-          <button v-for="b in buttons" :key="b.i" class="btn-row" :class="{ on: sel === b.i }" @click="sel = b.i">
+          <button
+            v-for="b in buttons"
+            :key="b.i"
+            class="btn-row"
+            :class="{ on: sel === b.i, changed: b.changed }"
+            :title="b.changed ? t.keyChangedTip(b.defLabel) : undefined"
+            @click="sel = b.i"
+          >
             <span class="idx">{{ b.i + 1 }}</span>
             <span class="txt">
-              <span class="nm">{{ b.name }}</span>
+              <span class="nm">
+                {{ b.name }}
+                <span v-if="b.changed" class="chg">{{ t.keyChanged }}</span>
+              </span>
               <span class="fn" :class="'c-' + b.cat">
                 <component :is="catIcons[b.cat]" :size="12" />
                 {{ b.label || '—' }}
@@ -342,8 +362,26 @@ const swapped = computed(() => isLRSwapped());
   min-width: 0;
 }
 .nm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
   font-size: 13px;
+}
+/* 已改为非默认功能 */
+.chg {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 17px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+.btn-row.changed:not(.on) .fn {
+  color: var(--text-2);
 }
 .fn {
   display: flex;

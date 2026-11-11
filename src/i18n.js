@@ -1,7 +1,7 @@
 import { reactive, computed } from 'vue';
 
 const zh = {
-  appName: 'INCOTT 驱动',
+  appName: 'incott 驱动',
   ok: '确定',
   cancel: '取消',
   save: '保存',
@@ -17,9 +17,9 @@ const zh = {
 
   // 欢迎 / 连接
   welcomeTitle: '让每一次点击都恰到好处',
-  welcomeSub: '连接你的 INCOTT 鼠标，调整 DPI、回报率、按键与宏。设置直接写入鼠标板载内存，关闭软件后依然生效。',
+  welcomeSub: '连接你的 incott 鼠标，调整 DPI、回报率、按键与宏。设置直接写入鼠标板载内存，关闭软件后依然生效。',
   searching: '正在寻找设备…',
-  noDevice: '未检测到 INCOTT 设备',
+  noDevice: '未检测到 incott 设备',
   noDeviceHint: '请插入 2.4G 接收器或使用数据线连接鼠标',
   connect: '连接设备',
   connecting: '正在连接…',
@@ -121,6 +121,8 @@ const zh = {
   catFire: '火力键',
   catMacro: '宏',
   restoreDefault: '恢复此键默认',
+  keyChanged: '已修改',
+  keyChangedTip: (d) => `已改为非默认功能（默认：${d}）`,
   swapLR: '左右键互换',
   swapLRDesc: '一键交换左键与右键的功能，适合左手使用',
   leftGuardTitle: '确认修改',
@@ -203,11 +205,11 @@ const zh = {
     '传感器发挥最佳性能，但会消耗更多电量',
   ],
   sensorModeHighRate: '回报率 ≥ 2000Hz 时固定为电竞模式',
-  hiFps: '最高性能',
+  hiFps: '高帧率',
   hiFpsDesc: '电竞模式下，DPI 低于 7000 时也把传感器帧率从约 12000 提到约 20000 fps，追踪更灵敏，无线续航可能缩短',
   hiFpsHighRateNote: '现在因回报率 ≥ 2000Hz 以电竞模式运行；降到 2000Hz 以下后，要选电竞模式才生效',
   hiFpsOnInactive: '已开启，但当前不生效：',
-  hiFpsEcoNote: '保存的是节能模式时，固件在 2000 / 4000Hz 下不支持「最高性能」。如需使用，请改用 8000Hz，或把回报率降到 1000Hz 以下后选择标准或电竞模式',
+  hiFpsEcoNote: '保存的是节能模式时，固件在 2000 / 4000Hz 下不支持「高帧率」。如需使用，请改用 8000Hz，或把回报率降到 1000Hz 以下后选择标准或电竞模式',
   lodTitle: '静默高度 (LOD)',
   lodDesc: '鼠标抬起时，传感器停止追踪的最小高度',
 
@@ -295,7 +297,7 @@ const zh = {
   diagCopy: '复制诊断信息',
   diagCopyBtn: '复制',
   diagSaveBtn: '保存',
-  diagDesc: '读取鼠标的原始数据（只读，不会改动设置），反馈问题时请附上。开头的「自动判断」可以先自己看看',
+  diagDesc: '读取鼠标的原始数据（只读，不会改动设置），反馈问题时请附上。',
   diagRunning: '读取中…',
   diagCopied: '诊断信息已复制，可粘贴到 GitHub Issue 或发给开发者',
   diagCopiedBusy: '鼠标正忙，没有读取鼠标，已复制现有记录',
@@ -331,7 +333,6 @@ const zh = {
   fConsole: (n) => `记录到 ${n} 条程序错误（见下方 Console 部分）`,
   fPrevUnclean: '上一次运行没有正常退出（崩溃、被强制结束或直接关机）',
   fNone: '没有发现明显异常',
-  aboutDesc: '基于 INCOTT 官方网页驱动（WebHID）移植的桌面版。所有设置直接写入鼠标板载内存，本软件不联网。',
   firstRunNotice:
     '首次使用：已从鼠标读取现有的设置（按键、DPI、回报率、消抖等），4 个配置都从它开始，修改前不会写入。若想沿用网页驱动里保存的配置，可在网页驱动中导出 .ict 文件后在这里导入。',
   firstRunNoticeSlots:
@@ -340,7 +341,7 @@ const zh = {
 };
 
 const en = {
-  appName: 'INCOTT Driver',
+  appName: 'incott Driver',
   ok: 'OK',
   cancel: 'Cancel',
   save: 'Save',
@@ -356,9 +357,9 @@ const en = {
 
   welcomeTitle: 'Every click, exactly right',
   welcomeSub:
-    'Connect your INCOTT mouse to tune DPI, polling rate, buttons and macros. Settings are stored on the mouse and keep working after you close the app.',
+    'Connect your incott mouse to tune DPI, polling rate, buttons and macros. Settings are stored on the mouse and keep working after you close the app.',
   searching: 'Looking for devices…',
-  noDevice: 'No INCOTT device found',
+  noDevice: 'No incott device found',
   noDeviceHint: 'Plug in the 2.4G receiver or connect the mouse with a cable',
   connect: 'Connect',
   connecting: 'Connecting…',
@@ -457,6 +458,8 @@ const en = {
   catFire: 'Rapid fire',
   catMacro: 'Macro',
   restoreDefault: 'Restore default',
+  keyChanged: 'Changed',
+  keyChangedTip: (d) => `Changed from the default (${d})`,
   swapLR: 'Swap left / right',
   swapLRDesc: 'Swap the left and right buttons for left-handed use',
   leftGuardTitle: 'Confirm',
@@ -622,7 +625,7 @@ const en = {
   diagCopy: 'Copy diagnostics',
   diagCopyBtn: 'Copy',
   diagSaveBtn: 'Save',
-  diagDesc: 'Reads raw data from the mouse (read-only, changes nothing). Attach it when reporting a problem; the "Findings" at the top may already point to the cause.',
+  diagDesc: 'Reads raw data from the mouse (read-only, changes nothing). Attach it when reporting a problem.',
   diagRunning: 'Reading…',
   diagCopied: 'Diagnostics copied — paste them into a GitHub issue or send them to the developer',
   diagCopiedBusy: 'The mouse is busy, so it was not read; the existing records were copied',
@@ -659,8 +662,6 @@ const en = {
   fConsole: (n) => `${n} program error(s) recorded (see the Console section below)`,
   fPrevUnclean: 'The previous run did not exit normally (crash, killed, or the computer was shut down)',
   fNone: 'No obvious problem found',
-  aboutDesc:
-    'A desktop port of the official INCOTT WebHID driver. All settings are written to the mouse onboard memory; this app never goes online.',
   firstRunNotice:
     'First run: the current settings were read from the mouse (buttons, DPI, polling rate, debounce…) and all 4 profiles start from them; nothing is written until you change something. To reuse profiles saved in the web driver, export an .ict file there and import it here.',
   firstRunNoticeSlots:

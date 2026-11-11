@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口：事件监听（HID 输入报告、窗口状态），Linux 自绘边框的缩放拖动；其余操作都走应用自己的命令",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "core:window:allow-start-resize-dragging"]
+}

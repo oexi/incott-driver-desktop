@@ -71,7 +71,7 @@ const rows = computed(() => {
       const locked = writable(pf.usbrate) >= 2000;
       return locked ? { text: T.sensorMode[2], sub: T.ovSensorLocked } : { text: T.sensorMode[pf.sensormode] ?? String(pf.sensormode) };
     }),
-    // 「最高性能」只有支持的鼠标才列出（1.4.x 固件的 PAW3950）
+    // 「高帧率」只有支持的鼠标才列出（1.4.x 固件的 PAW3950）
     ...(hiFpsSupported.value ? [row(T.hiFps, (pf) => ({ text: onOff(pf.hifps) }))] : []),
     row(T.ovMotion, (pf) => ({ text: onOff(pf.motion) })),
     row(T.ovAngle, (pf) => ({ text: onOff(pf.fixline) })),

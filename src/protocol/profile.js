@@ -25,7 +25,7 @@ export class StProfile {
     this.usbrate = 1000;
     this.lod = 1;
     this.sensormode = 1;
-    this.hifps = false; // PAW3950「最高性能」（传感器模式最高位，见 SENSOR_MODE_HIFPS）
+    this.hifps = false; // PAW3950「高帧率」（传感器模式最高位，见 SENSOR_MODE_HIFPS）
     this.fixline = false;
     this.ripple = false;
     this.motion = true;

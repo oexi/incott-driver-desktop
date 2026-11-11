@@ -1,4 +1,5 @@
-import './diaglog.js'; // 最先加载：捕获启动阶段的控制台错误
+import './platform/tauri.js'; // 最先加载：Tauri 版的 window.desktop / navigator.hid（diaglog、store 在加载时就要用）
+import './diaglog.js'; // 尽早加载：捕获启动阶段的控制台错误
 import { createApp } from 'vue';
 import App from './App.vue';
 import './styles/base.css';

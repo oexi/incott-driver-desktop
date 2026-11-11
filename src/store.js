@@ -96,7 +96,7 @@ loadMacros(state.macros);
 export const curProfile = computed(() => state.profiles.list[state.curIndex] || null);
 export const sensorCfg = computed(() => C.getStDPI(state.info.sensor) || C.dvar.stDPI[0]);
 /**
- * 「最高性能」（官方新版桌面驱动 str_Highfps）：只有 1.4.x 固件的 PAW3950 支持（IDA：传感器驱动按传感器模式最高位换参数；
+ * 「高帧率」（官方新版桌面驱动 str_Highfps）：只有 1.4.x 固件的 PAW3950 支持（IDA：传感器驱动按传感器模式最高位换参数；
  * 1.3.8 的 3950 固件和所有 3395 固件都没有）。1.4.x 用板载配置是否可用来判断（连接时的槽位探测）。
  * 不支持的固件收到带最高位的模式值可能会配置错传感器，所以不支持时既不显示也不写
  */
@@ -758,7 +758,7 @@ function trackWrite(m, pf, flag, index, dev, { sensorModeHi = 0, sensorModeAnyRa
   }
   const rate = dev.writableRate(pf.usbrate);
   if (flag & C.apRate) m.rate = rate;
-  // 与 device.apply 写的字节一致（含最高位：PAW3950「最高性能」）
+  // 与 device.apply 写的字节一致（含最高位：PAW3950「高帧率」）
   if (flag & C.apSensorMode && (rate < 2000 || sensorModeAnyRate)) m.sensormode = pf.sensormode | (sensorModeHi & C.SENSOR_MODE_HIFPS);
   if (flag & C.apLod) m.lod = C.lodToHw(pf.lod, dev.sensor);
   if (flag & C.apSensor) {
@@ -774,7 +774,7 @@ function trackWrite(m, pf, flag, index, dev, { sensorModeHi = 0, sensorModeAnyRa
 /** dev.apply 的包装：记下写进鼠标的内容；写入失败时鼠标里是什么就不确定了 */
 async function applyToMouse(dev, pf, flag, index, opts = {}) {
   // profileIndex: null —— 不写 [6,9,序号]
-  // 传感器模式的最高位（PAW3950「最高性能」）：支持时按配置写；不支持时照鼠标（当前槽位）里原来的带上，免得关掉官方驱动开的
+  // 传感器模式的最高位（PAW3950「高帧率」）：支持时按配置写；不支持时照鼠标（当前槽位）里原来的带上，免得关掉官方驱动开的
   const sensorModeAnyRate = hiFpsSupported.value;
   const sensorModeHi = sensorModeAnyRate ? (pf.hifps ? C.SENSOR_MODE_HIFPS : 0) : (mouse?.sensormode ?? 0) & C.SENSOR_MODE_HIFPS;
   const ok = await dev.apply(pf, flag, index, { macros: state.macros, ...opts, profileIndex: null, sensorModeHi, sensorModeAnyRate });
@@ -832,7 +832,7 @@ export function mouseDiff(pf, raw, dev) {
   const rate = dev.writableRate(pf.usbrate);
   if (neq(raw.rate, rate)) flag |= C.apRate;
   if (hiFpsSupported.value) {
-    // 1.4 固件的 PAW3950：模式和「最高性能」一起比，回报率多少都写
+    // 1.4 固件的 PAW3950：模式和「高帧率」一起比，回报率多少都写
     if (neq(raw.sensormode, pf.sensormode | (pf.hifps ? C.SENSOR_MODE_HIFPS : 0))) flag |= C.apSensorMode;
   } else if (rate < 2000 && neq(C.sensorModeOf(raw.sensormode), pf.sensormode)) flag |= C.apSensorMode;
   if (neq(raw.lod, C.lodToHw(pf.lod, dev.sensor))) flag |= C.apLod;
@@ -1521,7 +1521,7 @@ export async function exportProfile() {
   const r = await desktop.saveText({
     defaultName: `${pf.name}.ict`,
     content: pf.toText(),
-    filters: [{ name: 'INCOTT Profile', extensions: ['ict'] }],
+    filters: [{ name: 'incott Profile', extensions: ['ict'] }],
   });
   if (r.ok) toast(t.value.exportOk, 'success');
 }
@@ -1530,7 +1530,7 @@ export async function exportProfile() {
 export async function importProfile(text) {
   if (text == null) {
     if (!desktop) return;
-    const r = await desktop.openText({ filters: [{ name: 'INCOTT Profile', extensions: ['ict'] }] });
+    const r = await desktop.openText({ filters: [{ name: 'incott Profile', extensions: ['ict'] }] });
     if (!r.ok) return;
     text = r.content;
   }
@@ -1740,7 +1740,7 @@ export function setSensorMode(mode) {
   if (effectiveRate.value < 2000) chunk86(C.apSensorMode, 0);
 }
 
-/** PAW3950「最高性能」（只在 hiFpsSupported 时提供） */
+/** PAW3950「高帧率」（只在 hiFpsSupported 时提供） */
 export function setHiFps(on) {
   const pf = curProfile.value;
   if (!pf || !hiFpsSupported.value || !!pf.hifps === !!on) return;
@@ -1895,7 +1895,7 @@ export async function deleteMacro(uid) {
 
 export async function importMacro() {
   if (!desktop) return null;
-  const r = await desktop.openText({ filters: [{ name: 'INCOTT Macro', extensions: ['icm'] }] });
+  const r = await desktop.openText({ filters: [{ name: 'incott Macro', extensions: ['icm'] }] });
   if (!r.ok) return null;
   const m = new STMacro('');
   if (!m.initByText(r.content)) {
@@ -1914,7 +1914,7 @@ export async function exportMacro(uid) {
   const r = await desktop.saveText({
     defaultName: `${m.name}.icm`,
     content: m.toText(),
-    filters: [{ name: 'INCOTT Macro', extensions: ['icm'] }],
+    filters: [{ name: 'incott Macro', extensions: ['icm'] }],
   });
   if (r.ok) toast(t.value.exportOk, 'success');
 }

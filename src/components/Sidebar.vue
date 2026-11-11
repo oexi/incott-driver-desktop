@@ -100,16 +100,26 @@ const dpiColor = computed(() => {
   padding: 18px 16px 14px;
   text-align: center;
   overflow: hidden;
+  /* 整张卡片单独成一个合成图层：右侧切换页面的动画不会让它重新绘制。
+     WebKitGTK（Tauri 版）下重绘时光晕和投影会闪一下变深 */
+  isolation: isolate;
+  transform: translateZ(0);
 }
 .glow {
   position: absolute;
   left: 50%;
-  top: 70px;
-  width: 200px;
-  height: 140px;
+  top: 62px;
+  width: 216px;
+  height: 156px;
   transform: translateX(-50%);
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 35%, transparent), transparent);
-  filter: blur(8px);
+  /* 不用 filter: blur()：多一个中间色标把边缘放软，效果相近，各种渲染方式下都一样 */
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent) 33%, transparent),
+    color-mix(in srgb, var(--accent) 16%, transparent) 55%,
+    color-mix(in srgb, var(--accent) 5%, transparent) 80%,
+    transparent
+  );
   pointer-events: none;
 }
 .product {
@@ -118,6 +128,7 @@ const dpiColor = computed(() => {
   object-fit: contain;
   filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.35));
   animation: float 6s ease-in-out infinite;
+  will-change: transform;
 }
 @keyframes float {
   50% {

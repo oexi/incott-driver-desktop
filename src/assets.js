@@ -45,5 +45,5 @@ export const productImage = computed(() => {
 
 /** 界面上显示的型号名：零29 / 零39 的内部名是 G29 / FM23（见 modelFromCode） */
 export function displayName(devname) {
-  return devname ? `INCOTT ${t.value.modelNames?.[devname] ?? devname}` : 'INCOTT';
+  return devname ? (t.value.modelNames?.[devname] ?? devname) : '';
 }

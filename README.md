@@ -89,6 +89,26 @@
 | <img src="https://img.shields.io/badge/-Linux-FCC624?style=flat-square&logo=linux&logoColor=black" /> | `.AppImage` · `.deb` · `.rpm` · `.pacman` · `.tar.gz` | 同上（文件名含 `arm64` / `aarch64`） |
 
 <details>
+<summary><b>⬆️ 从 1.x 升级到 2.0</b></summary>
+
+<br />
+
+2.0 起桌面外壳从 Electron 换成了 Tauri（安装包从约 90 MB 降到几 MB），软件自己保存的数据换了位置，**不会自动带过来**：本地的板载配置副本、宏库和界面设置。写在鼠标里的设置不受影响，连上后会重新读出来。
+
+如果在 1.x 里录过宏或存过配置，升级前先在旧版里导出：「宏」页导出 `.icm`，配置导出 `.ict`，装好 2.0 后再导入。
+
+</details>
+
+<details>
+<summary><b>🪟 Windows：WebView2</b></summary>
+
+<br />
+
+界面由系统的 Microsoft Edge WebView2 显示。Windows 11 和较新的 Windows 10 已自带；没有的话安装版会自动下载安装，免安装版（portable）需要先装 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)。
+
+</details>
+
+<details>
 <summary><b>🍎 macOS：提示"已损坏"或"无法验证开发者"</b></summary>
 
 <br />
@@ -177,7 +197,7 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 - 读取过程只发送只读命令，不会改动鼠标里的设置；鼠标正在写入或连接卡住时，连读命令也不发，只导出已有记录。
 - 不含用户名、文件路径等个人信息；宏只包含动作数量、循环方式和绑定的按键，不含录制的按键内容；其它厂商的 HID 设备只列出 VID / PID，不列名称。
-- 桌面版会把软件事件和错误写入本机日志文件，只保存在本机、不会上传：Windows `%APPDATA%\Incott Driver\logs`，macOS `~/Library/Application Support/Incott Driver/logs`，Linux `~/.config/Incott Driver/logs`。
+- 桌面版会把软件事件和错误写入本机日志文件，只保存在本机、不会上传：Windows `%LOCALAPPDATA%\io.github.oexi.incott-driver\logs`，macOS `~/Library/Logs/io.github.oexi.incott-driver`，Linux `~/.local/share/io.github.oexi.incott-driver/logs`（1.x 版本在 `Incott Driver/logs`）。
 
 如果官方驱动能做到、本软件做不到（例如某个按键改不了），请参考[抓包指南](docs/usb-capture.md)录一段官方驱动的 USB 通信。
 
@@ -185,11 +205,11 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 ## 🛠️ 开发
 
-需要 Node.js 20+。
+界面是 Vue 3 + Vite，桌面外壳是 [Tauri 2](https://tauri.app)（Rust），HID 由 Rust 的 hidapi 收发。需要 Node.js 20+ 和 Rust 1.80+；Linux 还需要 `webkit2gtk-4.1`、`libayatana-appindicator`（托盘）和 `libudev` 的开发包（Ubuntu：`libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libudev-dev librsvg2-dev`）。
 
 ```bash
 npm install
-npm run dev          # 开发模式（Vite 热更新 + Electron）
+npm run dev          # 开发模式（Vite 热更新 + Tauri）
 npm test             # 协议差分测试
 npm run web          # 浏览器预览界面，打开 http://localhost:5178/?mock 使用模拟设备
 ```
@@ -200,10 +220,10 @@ npm run web          # 浏览器预览界面，打开 http://localhost:5178/?moc
 <br />
 
 ```bash
-npm run dist:linux   # Linux x64 + arm64
-npm run dist:win     # Windows x64 + arm64
-npm run dist:mac     # macOS x64 + arm64（需在 macOS 上执行）
+npm run build        # 打包当前系统的安装包，输出到 src-tauri/target/release/bundle/
 ```
+
+各平台 / 架构的正式安装包由 GitHub Actions 构建（见下）。
 
 </details>
 
@@ -226,7 +246,8 @@ npm version patch && git push --follow-tags
 <br />
 
 ```
-electron/            主进程：窗口、WebHID 授权与设备选择、托盘、文件对话框、Linux udev
+src-tauri/           桌面外壳（Rust / Tauri）：窗口、托盘、HID（hidapi）、日志、Linux udev、深色模式与窗口边框
+src/platform/        页面与外壳之间的适配层：window.desktop 与 navigator.hid
 src/protocol/        协议层（移植自原版 CBAccess / StProfile / STMacro）
   device.js          HID 收发、读取设备信息、apply() 写入流程
   profile.js         板载配置（.ict 文本格式）

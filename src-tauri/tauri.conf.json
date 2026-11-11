@@ -1,0 +1,61 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Incott Driver",
+  "mainBinaryName": "incott-driver",
+  "version": "../package.json",
+  "identifier": "io.github.oexi.incott-driver",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5178",
+    "beforeDevCommand": "npm run web",
+    "beforeBuildCommand": "npm run build:web"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "publisher": "oexi",
+    "copyright": "Copyright © 2026 oexi",
+    "license": "MIT",
+    "category": "Utility",
+    "shortDescription": "INCOTT mouse driver",
+    "longDescription": "Desktop driver for INCOTT mice (G23 / G24 / G23V2 / Zero 29 / Zero 39 / Ghero / G39), ported from the official WebHID web driver.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "resources": {
+      "../LICENSE": "LICENSE.txt",
+      "../NOTICE": "NOTICE.txt"
+    },
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"],
+        "files": {
+          "/usr/lib/udev/rules.d/70-incott-mouse.rules": "../build/linux/70-incott-mouse.rules"
+        }
+      },
+      "rpm": {
+        "depends": ["libayatana-appindicator-gtk3"],
+        "files": {
+          "/usr/lib/udev/rules.d/70-incott-mouse.rules": "../build/linux/70-incott-mouse.rules"
+        }
+      },
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "minimumSystemVersion": "10.15"
+    }
+  }
+}
