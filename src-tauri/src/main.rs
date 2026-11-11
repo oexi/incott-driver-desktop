@@ -30,6 +30,8 @@ struct AppState {
     quitting: AtomicBool,
     close_to_tray: AtomicBool,
     maximized: AtomicBool,
+    /// 启动时窗口内容已经露出来（见 reveal）
+    revealed: AtomicBool,
     theme_source: Mutex<String>,
     /// 系统深色模式（Linux 从 portal 读取；其它平台交给 webview 自己判断，为 None）
     system_dark: Mutex<Option<bool>>,
@@ -473,8 +475,6 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .inner_size(1280.0 + pad, 820.0 + pad)
         .min_inner_size(1080.0 + pad, 700.0 + pad)
         .center()
-        // 窗口一开始就显示（背景色与主题一致，不会闪白）。不要先隐藏、等页面画好再显示：
-        // 隐藏的 WebKit 页面属于后台页面，定时器可能被放慢，requestAnimationFrame 也可能不触发
         .background_color(if cfg!(target_os = "linux") {
             Color(0, 0, 0, 0)
         } else if dark {
@@ -493,6 +493,13 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .traffic_light_position(tauri::LogicalPosition::new(18.0, 18.0));
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(false);
+    // 启动时不要露出 webview 画出第一帧之前的样子（黑一下）：
+    // - Windows / macOS：Tauri 官方做法，窗口先隐藏，界面挂载好后由页面调用 win_reveal 显示；底色已按主题设好
+    // - Linux：WebKitGTK 在 NVIDIA 上要约 1 秒才能出第一帧，而隐藏的页面拿不到「画好了」的信号（rAF 不触发）。
+    //   所以窗口照常显示，只把装 webview 的容器设成几乎全透明，页面真正画出界面后（两次 rAF）再调用 win_reveal
+    // 两边都有 2 秒保底
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.visible(false);
     #[cfg(target_os = "linux")]
     let builder = builder.transparent(true);
     let w = builder.build()?;
@@ -500,8 +507,53 @@ fn create_main_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     {
         set_csd_margin(&w, false);
         watch_active(&w);
+        set_content_opacity(&w, HIDDEN_OPACITY);
     }
+
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            if let Some(w) = app3.get_webview_window(MAIN) {
+                reveal(&app3, &w, "fallback");
+            }
+        });
+    });
     Ok(w)
+}
+
+/// 不用 0：完全透明时 GTK 不再绘制 webview，WebKit 收不到帧完成，页面的 rAF 会停住
+#[cfg(target_os = "linux")]
+const HIDDEN_OPACITY: f64 = 0.004;
+
+#[cfg(target_os = "linux")]
+fn set_content_opacity(w: &WebviewWindow, opacity: f64) {
+    use gtk::prelude::*;
+    if let Ok(vbox) = w.default_vbox() {
+        vbox.set_opacity(opacity);
+    }
+}
+
+/// 启动时把窗口内容露出来，只做一次；by 记入日志（page = 页面准备好后调用，fallback = 2 秒保底）
+fn reveal(app: &AppHandle, w: &WebviewWindow, by: &str) {
+    let st = app.state::<AppState>();
+    if st.revealed.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    set_content_opacity(w, 1.0);
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    st.log.append(&format!("[main] window revealed by {by}"), false);
+}
+
+#[tauri::command]
+fn win_reveal(app: AppHandle, window: WebviewWindow) {
+    reveal(&app, &window, "page");
 }
 
 fn main() {
@@ -514,6 +566,7 @@ fn main() {
         quitting: AtomicBool::new(false),
         close_to_tray: AtomicBool::new(false),
         maximized: AtomicBool::new(false),
+        revealed: AtomicBool::new(false),
         theme_source: Mutex::new("system".into()),
         #[cfg(target_os = "linux")]
         system_dark: Mutex::new(linux::portal_dark()),
@@ -534,6 +587,7 @@ fn main() {
             win_close,
             win_is_maximized,
             win_start_drag,
+            win_reveal,
             set_theme,
             set_tray,
             open_external,

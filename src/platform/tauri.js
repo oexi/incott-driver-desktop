@@ -225,6 +225,7 @@ function install() {
         return () => un.then((f) => f());
       },
       startDrag: () => invoke('win_start_drag'),
+      reveal: () => invoke('win_reveal').catch(() => {}),
     },
     setTheme: (source) => {
       if (source === theme) return;

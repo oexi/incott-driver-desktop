@@ -97,6 +97,12 @@
 
 如果在 1.x 里录过宏或存过配置，升级前先在旧版里导出：「宏」页导出 `.icm`，配置导出 `.ict`，装好 2.0 后再导入。
 
+Arch 用 pacman 包从 1.x 升级时，pacman 会报 `/usr/bin/incott-driver` 已存在（1.x 安装时另外创建的链接），加 `--overwrite` 即可：
+
+```bash
+sudo pacman -U --overwrite /usr/bin/incott-driver incott-driver-*-linux-x64.pacman
+```
+
 </details>
 
 <details>
