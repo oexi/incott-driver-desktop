@@ -88,7 +88,7 @@ function copyRules() {
       <div class="ring r2"></div>
       <div class="ring r3"></div>
       <div class="halo"></div>
-      <img class="mouse" :src="heroImg" alt="" />
+      <div class="mouse-float"><img class="mouse" :src="heroImg" alt="" /></div>
     </div>
   </section>
 </template>
@@ -188,22 +188,40 @@ h1 {
   height: min(70vh, 560px);
   display: grid;
   place-items: center;
+  /* 与侧边栏的鼠标卡片相同：整块单独成一个合成图层，光晕不用模糊滤镜，鼠标图固定在自己的图层上。
+     WebKitGTK（Tauri 版）重新合成图层时会换一种方式画模糊和投影，鼠标下方那片区域会闪 */
+  isolation: isolate;
+  transform: translateZ(0);
 }
-.mouse {
+/* 浮动动画放在外层、投影留在里层图片上：投影只画一次，动画只移动图层。
+   滤镜和动画在同一个元素上时，WebKitGTK 每帧重算投影，鼠标下方投影那片区域会闪 */
+.mouse-float {
   position: relative;
   height: 72%;
   max-height: 420px;
+  display: flex;
+  justify-content: center;
+  animation: float 7s ease-in-out infinite;
+  will-change: transform;
+}
+.mouse {
+  height: 100%;
   object-fit: contain;
   filter: drop-shadow(0 40px 40px rgba(0, 0, 0, 0.45));
-  animation: float 7s ease-in-out infinite;
 }
 .halo {
   position: absolute;
-  width: 60%;
+  /* 原来是 60% 宽再模糊 20px：放大一点、多几个色标把边缘放软，效果相近 */
+  width: 68%;
   aspect-ratio: 1;
   border-radius: 50%;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 40%, transparent), transparent);
-  filter: blur(20px);
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--accent) 38%, transparent),
+    color-mix(in srgb, var(--accent) 20%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 7%, transparent) 78%,
+    transparent
+  );
 }
 .ring {
   position: absolute;
