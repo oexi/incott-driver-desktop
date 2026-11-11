@@ -977,10 +977,10 @@ export class IncottDevice extends EventTarget {
     }
     progress((pg += 5));
 
-    // sensorModeAnyRate：1.4 固件的 PAW3950 在 2000 Hz 以上也写（模式由固件固定为电竞，「最高性能」照样生效）
+    // sensorModeAnyRate：1.4 固件的 PAW3950 在 2000 Hz 以上也写（模式由固件固定为电竞，「高帧率」照样生效）
     if (flag & apSensorMode && (rate < 2000 || ctx.sensorModeAnyRate)) {
       await sleep(waitT);
-      // 最高位（PAW3950「最高性能」）：支持时按配置，不支持时按鼠标里原来的带上，见 SENSOR_MODE_HIFPS
+      // 最高位（PAW3950「高帧率」）：支持时按配置，不支持时按鼠标里原来的带上，见 SENSOR_MODE_HIFPS
       const sm = pf.sensormode | ((ctx.sensorModeHi || 0) & 0x80);
       if (!(await this.setSM(sm))) return fail(`sensor mode ${sm}`);
     }

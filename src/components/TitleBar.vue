@@ -11,6 +11,13 @@ const showControls = !!d && !isMac;
 const maximized = ref(false);
 let off;
 
+// 按下标题栏空白处时由程序开始拖动窗口，双击最大化（与系统标题栏一致）
+function onDown(e) {
+  if (!d || e.button !== 0 || e.target.closest('.actions')) return;
+  if (e.detail === 2) d.win.toggleMaximize();
+  else d.win.startDrag();
+}
+
 onMounted(async () => {
   if (!d) return;
   maximized.value = await d.win.isMaximized();
@@ -20,13 +27,13 @@ onBeforeUnmount(() => off && off());
 </script>
 
 <template>
-  <header class="titlebar" :class="{ mac: isMac }" @dblclick.self="d?.win.toggleMaximize()">
+  <header class="titlebar" :class="{ mac: isMac }" @mousedown="onDown">
     <div class="brand">
       <AppLogo :size="20" />
-      <span class="word">INCOTT</span>
+      <span class="word">incott</span>
       <span class="sub">Driver</span>
     </div>
-    <div class="drag" @dblclick="d?.win.toggleMaximize()"></div>
+    <div class="drag"></div>
     <div class="actions">
       <button class="tb-btn" :title="t.navSettings" @click="state.settingsOpen = true"><Settings :size="16" /></button>
       <template v-if="showControls">
@@ -49,7 +56,6 @@ onBeforeUnmount(() => off && off());
   display: flex;
   align-items: center;
   padding-left: 16px;
-  -webkit-app-region: drag;
   position: relative;
   z-index: 5;
 }
@@ -79,7 +85,6 @@ onBeforeUnmount(() => off && off());
   display: flex;
   align-items: center;
   height: 100%;
-  -webkit-app-region: no-drag;
 }
 .sep {
   width: 1px;

@@ -2,7 +2,7 @@
 import { ref, watch } from 'vue';
 import { X, Monitor, Moon, Sun, Languages, Palette, PanelTop, Mouse, ClipboardCopy, LoaderCircle, Download } from 'lucide-vue-next';
 import { state, settings, saveSettings, isDesktop } from '../store.js';
-import { copyDiagnostics, saveDiagnostics } from '../diagnostics.js';
+import { copyDiagnostics, saveDiagnostics, hostLabel } from '../diagnostics.js';
 import { t } from '../i18n.js';
 import { SHELLS, shellOf, modelDir } from '../assets.js';
 import AppLogo from './AppLogo.vue';
@@ -126,9 +126,8 @@ function setShell(shell) {
           <div class="about">
             <AppLogo :size="40" />
             <div>
-              <div class="ab-name">INCOTT Driver <span class="muted num" v-if="info">v{{ info.version }}</span></div>
-              <div class="muted ab-desc">{{ t.aboutDesc }}</div>
-              <div v-if="info" class="muted ab-ver mono">{{ info.platform }}-{{ info.arch }} · Electron {{ info.electron }} · Chromium {{ info.chrome }}</div>
+              <div class="ab-name">incott Driver <span class="muted num" v-if="info">v{{ info.version }}</span></div>
+              <div v-if="info" class="muted ab-ver mono">{{ info.platform }}-{{ info.arch }} · {{ hostLabel(info) }}</div>
             </div>
           </div>
         </div>
@@ -228,11 +227,6 @@ h2 {
 .ab-name {
   font-weight: 700;
   font-size: 15px;
-}
-.ab-desc {
-  font-size: 12.5px;
-  margin-top: 4px;
-  line-height: 1.6;
 }
 .ab-ver {
   font-size: 11px;

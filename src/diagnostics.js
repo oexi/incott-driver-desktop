@@ -76,6 +76,11 @@ function reportBytes(r) {
   return Math.ceil((r.items || []).reduce((s, i) => s + (i.reportSize || 0) * (i.reportCount || 0), 0) / 8);
 }
 
+/** 宿主与网页引擎版本（Windows 为 WebView2，macOS / Linux 为 WebKit） */
+export function hostLabel(info) {
+  return `Tauri ${info?.tauri || '?'} · WebView ${info?.webview || '?'}`;
+}
+
 function describeHid(d) {
   const rep = (list) => (list || []).map((r) => `${r.reportId}:${reportBytes(r)}B`).join(',');
   const cols = (d.collections || []).map(
@@ -155,7 +160,7 @@ function decodeReply(cmd, d, pid) {
     }
     case 0x84:
       if (sub === 1) return `${LOD_FW[d[2]] ?? '?'} (fw ${d[2]})`;
-      if (sub === 5) return `${SENSOR_MODE[d[2] & 0x7f] ?? '?'}${d[2] & 0x80 ? ' + high fps (最高性能)' : ''} (${d[2]})`;
+      if (sub === 5) return `${SENSOR_MODE[d[2] & 0x7f] ?? '?'}${d[2] & 0x80 ? ' + high fps (高帧率)' : ''} (${d[2]})`;
       return d[2] ? 'on' : 'off';
     case 0x85:
       if (sub === 1) return `${d[2]} ms`;
@@ -265,7 +270,7 @@ function compareWithProfile(raw, pf, dev, { starUnsupported, firstRun }) {
   row('motion sync', d && !!d[2], pf.motion, true);
   d = data('132,5');
   row('sensor mode', d && (SENSOR_MODE[d[2] & 0x7f] ?? d[2]), SENSOR_MODE[pf.sensormode] ?? pf.sensormode, true);
-  row('high fps (最高性能)', d && !!(d[2] & 0x80), !!pf.hifps, true);
+  row('high fps (高帧率)', d && !!(d[2] & 0x80), !!pf.hifps, true);
   d = data('133,1');
   row('debounce', d && d[2], pf.debounce, true);
   d = data('133,3');
@@ -516,7 +521,7 @@ export async function collectDiagnostics({ busy = null, sysHid = null } = {}) {
   L.push('## INCOTT Driver diagnostics', '');
   L.push(`- time: ${new Date().toISOString()} (app started ${startedAt}, uptime ${Math.round(uptime() / 1000)} s)`);
   if (info) {
-    L.push(`- app: v${info.version} (${info.install || '?'}) · Electron ${info.electron} · Chromium ${info.chrome}`);
+    L.push(`- app: v${info.version} (${info.install || '?'}) · ${hostLabel(info)}`);
     L.push(`- os: ${info.os || info.platform} · ${info.platform}-${info.arch}${info.session ? ` · ${info.session}` : ''}${info.desktop ? ` · ${info.desktop}` : ''} · locale ${info.locale || '?'}`);
   } else {
     L.push(`- browser: ${typeof navigator !== 'undefined' ? navigator.userAgent : '?'}`);

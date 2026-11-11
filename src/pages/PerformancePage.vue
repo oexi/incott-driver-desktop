@@ -117,12 +117,12 @@ const highRate = computed(() => effectiveRate.value >= 2000);
 
 /* 传感器模式 */
 const modeIcons = [Leaf, Scale, Rocket];
-// 「最高性能」：只有 1.4.x 固件的 PAW3950 有，只在电竞模式实际生效时起作用——保存的是电竞，或回报率 ≥ 2000 Hz
+// 「高帧率」：只有 1.4.x 固件的 PAW3950 有，只在电竞模式实际生效时起作用——保存的是电竞，或回报率 ≥ 2000 Hz
 // （固件这时固定用电竞模式，也会用这一位）。界面在 ≥ 2000 Hz 时高亮的就是电竞，所以这时也显示，和看到的一致。
 // 官方新版桌面驱动只看保存的模式，但它在 ≥ 2000 Hz 时高亮的也是保存的模式。
 // 保存的不是电竞时注明：降到 2000 Hz 以下后要选电竞模式才生效
 const showHiFps = computed(() => hiFpsSupported.value && (highRate.value || pf.value?.sensormode === 2));
-// 固件的疏漏（IDA：1.4.0.3 sub_100102E4 / [1,回报率] / 槽位重载）：保存的是节能时，2000 / 4000 Hz 下把「最高性能」写死成 0，
+// 固件的疏漏（IDA：1.4.0.3 sub_100102E4 / [1,回报率] / 槽位重载）：保存的是节能时，2000 / 4000 Hz 下把「高帧率」写死成 0，
 // 只有 8000 Hz 走单独的分支才认。软件绕不过去（只能改掉用户保存的模式），所以这时开关不可点，并说明原因
 const hiFpsBlocked = computed(() => showHiFps.value && pf.value?.sensormode === 0 && [2000, 4000].includes(effectiveRate.value));
 const hiFpsOnlyHighRate = computed(() => showHiFps.value && !hiFpsBlocked.value && pf.value?.sensormode !== 2);

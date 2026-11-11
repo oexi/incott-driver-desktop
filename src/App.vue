@@ -88,8 +88,9 @@ onMounted(() => {
 .page-scroll {
   flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  /* 始终预留滚动条位置：内容变高出现滚动条时不挤压页面宽度（右内边距相应减去 10px 滚动条宽） */
+  /* 始终预留滚动条位置：内容变高出现滚动条时不挤压页面宽度（右内边距相应减去 10px 滚动条宽）。
+     WebKitGTK（Tauri 版）不按 scrollbar-gutter 预留，所以用 scroll：轨道透明、不能滚动时不画滑块，看不出区别 */
+  overflow-y: scroll;
   scrollbar-gutter: stable;
   padding: 4px 18px 28px 28px;
 }

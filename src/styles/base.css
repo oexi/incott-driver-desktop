@@ -63,6 +63,7 @@
   --surface-3: #242832;
   --line: rgba(255, 255, 255, 0.065);
   --line-2: rgba(255, 255, 255, 0.11);
+  --win-edge: rgba(255, 255, 255, 0.12);
   --text: #eceef3;
   --text-2: #a5aab7;
   --text-3: #6d7280;
@@ -85,6 +86,7 @@
   --surface-3: #eceef2;
   --line: rgba(15, 20, 30, 0.07);
   --line-2: rgba(15, 20, 30, 0.12);
+  --win-edge: rgba(15, 20, 30, 0.2);
   --text: #15171c;
   --text-2: #565c69;
   --text-3: #8b909c;
@@ -160,6 +162,40 @@ img {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ------------------------------------------- Linux 自绘窗口边框（Tauri 版） */
+/* Electron（Chromium）在 Linux 上给无边框窗口画了圆角、细边线和阴影，GTK 的无边框窗口没有。
+   Tauri 版的窗口是透明的，四周留 12px 阴影区（src-tauri/src/main.rs 的 CSD_MARGIN），边框和阴影在这里画；
+   获得焦点时阴影加深，最大化时去掉。html 上的 csd / focused / maximized 由 src/platform/tauri.js 设置 */
+html.csd,
+html.csd body {
+  background: transparent;
+}
+html.csd #app {
+  padding: 12px;
+}
+html.csd .app {
+  border-radius: 10px;
+  overflow: hidden;
+  /* 弹窗、遮罩（position: fixed）以窗口边框为界，不会盖到阴影区 */
+  transform: translateZ(0);
+  box-shadow:
+    0 0 0 1px var(--win-edge),
+    0 1px 4px rgba(0, 0, 0, 0.22);
+  transition: box-shadow 0.15s;
+}
+html.csd.focused .app {
+  box-shadow:
+    0 0 0 1px var(--win-edge),
+    0 3px 9px rgba(0, 0, 0, 0.42);
+}
+html.csd.maximized #app {
+  padding: 0;
+}
+html.csd.maximized .app {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* ------------------------------------------------------------- card */
