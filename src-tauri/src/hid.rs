@@ -2,6 +2,8 @@
 //!
 //! - 只列出 / 打开 INCOTT（Pixart 093A）的配置接口（usage page 0xFF05），收发只允许报告 ID 9：
 //!   接收器另一个接口上的报告 3 会让芯片进入升级模式，这里根本打不开那个接口。
+//! - Windows 上每个顶层集合是一条单独的路径：部分接收器（如 1K）配置接口的两个 FF05 集合（报告 8 / 报告 9）分成两个设备，
+//!   只有带特性报告 9 的那个能打开（issue #33）。Linux（hidraw）和 macOS 一个接口一条路径，两个集合在一起。
 //! - hidapi 没有热插拔通知：每秒枚举一次，按路径比对，发 hid:connect / hid:disconnect 事件。
 //! - 每个打开的设备有一个读线程，把输入报告（状态包）作为 hid:input 事件发给页面。
 
@@ -77,6 +79,13 @@ pub struct HidManager {
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+/// 有能收发命令的 FF05 集合（带特性报告 9）
+fn is_config_interface(desc: &Parsed) -> bool {
+    desc.collections.iter().any(|c| {
+        c.usage_page == CONFIG_USAGE_PAGE && c.feature_reports.iter().any(|r| ALLOWED_REPORT_IDS.contains(&r.report_id))
+    })
 }
 
 impl HidManager {
@@ -226,8 +235,7 @@ impl HidManager {
         let desc = self.descriptor(&api, id).ok_or("cannot read the report descriptor")?;
         let info = self.known.lock().unwrap().devices.get(id).cloned();
         let vid_ok = info.as_ref().is_some_and(|d| d.vendor_id == INCOTT_VID);
-        let page_ok = desc.collections.iter().any(|c| c.usage_page == CONFIG_USAGE_PAGE);
-        if !vid_ok || !page_ok {
+        if !vid_ok || !is_config_interface(&desc) {
             return Err("not an INCOTT configuration interface".into());
         }
         let cpath = CString::new(id).map_err(err)?;
@@ -345,6 +353,34 @@ impl HidManager {
         };
         buf.truncate(n.min(len));
         Ok(buf)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 按 issue #33（1K 接收器）诊断里列出的集合构造，不是实物描述符：两个 FF05:0001 集合，
+    // 报告 8 只有 32 字节输入 / 输出，报告 9 另有 8 字节特性报告
+    const TLC_8: [u8; 22] = [
+        0x06, 0x05, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x08, 0x75, 0x08, 0x95, 0x20, 0x09, 0x01, 0x81, 0x02, 0x09, 0x01,
+        0x91, 0x02, 0xc0,
+    ];
+    const TLC_9: [u8; 28] = [
+        0x06, 0x05, 0xff, 0x09, 0x01, 0xa1, 0x01, 0x85, 0x09, 0x75, 0x08, 0x95, 0x20, 0x09, 0x01, 0x81, 0x02, 0x09, 0x01,
+        0x91, 0x02, 0x95, 0x08, 0x09, 0x01, 0xb1, 0x02, 0xc0,
+    ];
+
+    #[test]
+    fn config_interface_needs_feature_report_9() {
+        // Linux / macOS：一个接口一条路径，两个集合都在
+        assert!(is_config_interface(&hiddesc::parse(&[TLC_8.as_slice(), &TLC_9].concat())));
+        // Windows：每个集合一条路径，只有报告 8 的那个打不开
+        assert!(!is_config_interface(&hiddesc::parse(&TLC_8)));
+        let p = hiddesc::parse(&TLC_9);
+        assert!(is_config_interface(&p));
+        assert_eq!(p.size(Kind::Feature, 9), Some(8));
+        assert_eq!(p.size(Kind::Input, 9), Some(32));
     }
 }
 
