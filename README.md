@@ -211,13 +211,22 @@ sudo udevadm control --reload-rules && sudo udevadm trigger
 
 ## 🛠️ 开发
 
-界面是 Vue 3 + Vite，桌面外壳是 [Tauri 2](https://tauri.app)（Rust），HID 由 Rust 的 hidapi 收发。需要 Node.js 20+ 和 Rust 1.80+；Linux 还需要 `webkit2gtk-4.1`、`libayatana-appindicator`（托盘）和 `libudev` 的开发包（Ubuntu：`libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libudev-dev librsvg2-dev`）。
+界面是 Vue 3 + Vite，桌面外壳是 [Tauri 2](https://tauri.app)（Rust），HID 由 Rust 的 hidapi 收发。需要 Node.js 22+ 和 Rust 1.90+，以及各系统的编译工具：
+
+- **Windows**：Microsoft C++ 生成工具（勾选「使用 C++ 的桌面开发」）和 WebView2
+- **macOS**：Xcode Command Line Tools（`xcode-select --install`）
+- **Linux**：C 编译器，`webkit2gtk-4.1`、`libayatana-appindicator`（托盘）和 `libudev` 的开发包，打 AppImage 还要 `file`。Ubuntu / Debian：
+
+  ```bash
+  sudo apt install build-essential file libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libudev-dev librsvg2-dev
+  ```
 
 ```bash
 npm install
 npm run dev          # 开发模式（Vite 热更新 + Tauri）
 npm test             # 协议差分测试
 npm run web          # 浏览器预览界面，打开 http://localhost:5178/?mock 使用模拟设备
+cargo test --manifest-path src-tauri/Cargo.toml   # Rust 单元测试
 ```
 
 <details>
@@ -226,10 +235,13 @@ npm run web          # 浏览器预览界面，打开 http://localhost:5178/?moc
 <br />
 
 ```bash
-npm run build        # 打包当前系统的安装包，输出到 src-tauri/target/release/bundle/
+npm run build                    # 打包当前系统的安装包，输出到 src-tauri/target/release/bundle/
+npm run build -- --bundles deb   # 只打其中一种（deb / rpm / appimage / nsis / dmg …）
 ```
 
-各平台 / 架构的正式安装包由 GitHub Actions 构建（见下）。
+Linux 上打出 deb、rpm 和 AppImage。AppImage 打包时要从 GitHub 下载 linuxdeploy，在没有 FUSE 的环境（容器等）里构建要设 `APPIMAGE_EXTRACT_AND_RUN=1`。
+
+各平台 / 架构的正式安装包由 GitHub Actions 构建（见下）；Release 里的 `.pacman`、`.tar.gz`、Windows 免安装版和 macOS `.zip` 是 CI 用 [`collect.sh`](.github/scripts/collect.sh) 另外整理出来的，`npm run build` 不会生成。
 
 </details>
 
@@ -240,8 +252,19 @@ npm run build        # 打包当前系统的安装包，输出到 src-tauri/targ
 
 推送 `v*` 标签即可触发 GitHub Actions：测试 → 6 个平台 / 架构并行打包 → 自动创建 Release，并附上全部安装包和 `SHA256SUMS.txt`。
 
+版本号有两处：`package.json`（应用显示的版本和安装包文件名取自这里）和 `src-tauri/Cargo.toml`，要一起改：
+
 ```bash
-npm version patch && git push --follow-tags
+npm version 2.0.2 --no-git-tag-version              # 改 package.json 和 package-lock.json
+# 再把 src-tauri/Cargo.toml 里的 version 改成 2.0.2
+cargo check --manifest-path src-tauri/Cargo.toml   # 同步 src-tauri/Cargo.lock
+git commit -am "Release v2.0.2"
+```
+
+这个提交进入 main 后，给要发布的提交打标签并推送：
+
+```bash
+git tag v2.0.2 && git push origin v2.0.2
 ```
 
 </details>
