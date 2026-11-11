@@ -32,12 +32,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: linux-x64, os: ubuntu-latest, args: --linux --x64 }
-          - { name: linux-arm64, os: ubuntu-latest, args: --linux --arm64 }
-          - { name: win-x64, os: windows-latest, args: --win --x64 }
-          - { name: win-arm64, os: windows-latest, args: --win --arm64 }
-          - { name: mac-x64, os: macos-latest, args: --mac --x64 }
-          - { name: mac-arm64, os: macos-latest, args: --mac --arm64 }
+          # Linux 用 22.04 构建：glibc 较旧，装到新发行版上也能运行
+          - { name: linux-x64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, bundles: 'deb,rpm,appimage' }
+          - { name: linux-arm64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, bundles: 'deb,rpm,appimage' }
+          - { name: win-x64, os: windows-latest, target: x86_64-pc-windows-msvc, bundles: nsis }
+          - { name: win-arm64, os: windows-latest, target: aarch64-pc-windows-msvc, bundles: nsis }
+          - { name: mac-x64, os: macos-latest, target: x86_64-apple-darwin, bundles: 'app,dmg' }
+          - { name: mac-arm64, os: macos-latest, target: aarch64-apple-darwin, bundles: 'app,dmg' }
     name: build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
     steps:
@@ -46,32 +47,39 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.target }}
 
-      - name: Linux 打包依赖（rpm / pacman）
+      - name: Linux 构建依赖
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y rpm libarchive-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libudev-dev \
+            libssl-dev patchelf file rpm ruby ruby-dev build-essential libarchive-tools zstd
+          sudo gem install --no-document fpm
 
       - run: npm ci
-      - run: npm run build:web
 
-      - name: electron-builder
-        run: npx electron-builder ${{ matrix.args }} --publish never
+      - name: tauri build
+        run: npx tauri build --ci --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # AppImage 打包工具（linuxdeploy）在没有 FUSE 的 CI 机器上解包运行
+          APPIMAGE_EXTRACT_AND_RUN: 1
+
+      - name: 整理安装包
+        shell: bash
+        run: bash .github/scripts/collect.sh ${{ matrix.name }} ${{ matrix.target }}
 
       - uses: actions/upload-artifact@v4
         with:
           name: incott-driver-${{ matrix.name }}
           if-no-files-found: error
-          path: |
-            release/*.AppImage
-            release/*.deb
-            release/*.rpm
-            release/*.pacman
-            release/*.tar.gz
-            release/*.exe
-            release/*.dmg
-            release/*.zip
+          path: dist-release/*
 
   release:
     needs: build
@@ -97,5 +105,7 @@ jobs:
             | macOS | `mac-x64.dmg` | `mac-arm64.dmg`（Apple Silicon） |
             | Linux | `.AppImage` / `.deb` / `.rpm` / `.pacman` / `.tar.gz`（x64 / x86_64 / amd64） | 同名 `arm64` / `aarch64` 包 |
 
-            - **macOS**：应用未经过 Apple 公证，首次打开若提示"已损坏"，请在终端执行 `xattr -cr "/Applications/Incott Driver.app"`。
-            - **Linux**：deb / rpm / pacman 包会自动安装 udev 规则；AppImage 用户可在应用内一键安装。安装后重新插拔接收器即可。
+            - **从 1.x 升级**：2.0 起桌面外壳换成了 Tauri，软件自己保存的板载配置副本、宏库和界面设置**不会自动带过来**（鼠标里的设置不受影响）。录过宏或存过配置的，请先在旧版里导出 `.icm` / `.ict`，装好新版后再导入。
+            - **Windows**：界面由系统的 WebView2 显示（Windows 11 与较新的 Windows 10 已自带）。安装版缺少时会自动安装；便携版需要系统已装有 WebView2。
+            - **macOS**：需要 macOS 12 或更新版本。应用未经过 Apple 公证，首次打开若提示"已损坏"，请在终端执行 `xattr -cr "/Applications/Incott Driver.app"`。
+            - **Linux**：deb / rpm / pacman 包会自动安装 udev 规则；AppImage / tar.gz 用户可在应用内一键安装。安装后重新插拔接收器即可。pacman 包与 1.x 同名，可直接 `pacman -U` 升级。
