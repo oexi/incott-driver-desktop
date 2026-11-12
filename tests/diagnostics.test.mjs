@@ -23,7 +23,7 @@ const C = await import('../src/protocol/constants.js');
 const { IncottDevice } = await import('../src/protocol/device.js');
 const { StProfile, StProfileList } = await import('../src/protocol/profile.js');
 const store = await import('../src/store.js');
-const { collectDiagnostics, DIAG_QUERIES, buildFindings } = await import('../src/diagnostics.js');
+const { collectDiagnostics, DIAG_QUERIES, buildFindings, hostLabel } = await import('../src/diagnostics.js');
 const { logEvent, events, consoleLog } = await import('../src/diaglog.js');
 const { STMacro, STMacroItem } = await import('../src/protocol/macro.js');
 const { t } = await import('../src/i18n.js');
@@ -604,4 +604,12 @@ test('issue #33：未连接时诊断只探测报告 9 的设备', async () => {
   assert.equal(r9.opens, 1);
   assert.equal(text.match(/### Probe /g).length, 1);
   assert.doesNotMatch(text, /HidD_SetFeature/);
+});
+
+test('关于页与诊断里的网页引擎按平台显示名称', () => {
+  assert.equal(hostLabel({ platform: 'linux', tauri: '2.12.5', webview: '2.50.1' }), 'Tauri 2.12.5 · WebKitGTK 2.50.1');
+  assert.equal(hostLabel({ platform: 'darwin', tauri: '2.12.5', webview: '20621.1.15' }), 'Tauri 2.12.5 · WebKit 20621.1.15');
+  assert.equal(hostLabel({ platform: 'win32', tauri: '2.12.5', webview: '142.0.3595.65' }), 'Tauri 2.12.5 · WebView2 142.0.3595.65');
+  assert.equal(hostLabel({ platform: 'win32', tauri: '2.12.5', webview: '' }), 'Tauri 2.12.5 · WebView2 ?', '没装 WebView2 时版本取不到');
+  assert.equal(hostLabel(null), 'Tauri ? · WebView ?');
 });

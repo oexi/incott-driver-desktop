@@ -76,9 +76,13 @@ function reportBytes(r) {
   return Math.ceil((r.items || []).reduce((s, i) => s + (i.reportSize || 0) * (i.reportCount || 0), 0) / 8);
 }
 
-/** 宿主与网页引擎版本（Windows 为 WebView2，macOS / Linux 为 WebKit） */
+/** 各平台的系统网页引擎（版本号由 wry 的 webview_version 按平台取） */
+const ENGINE_NAMES = { win32: 'WebView2', darwin: 'WebKit', linux: 'WebKitGTK' };
+
+/** 宿主与网页引擎版本，如「Tauri 2.12.5 · WebKitGTK 2.50.1」 */
 export function hostLabel(info) {
-  return `Tauri ${info?.tauri || '?'} · WebView ${info?.webview || '?'}`;
+  const engine = ENGINE_NAMES[info?.platform] || 'WebView';
+  return `Tauri ${info?.tauri || '?'} · ${engine} ${info?.webview || '?'}`;
 }
 
 function describeHid(d) {
