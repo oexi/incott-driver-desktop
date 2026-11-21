@@ -62,7 +62,8 @@ test('实测 G23V2 无线（8K 接收器）回包除 0x5A 外全为 0：电量�
   assert.equal(await readPower([0x89, 0, 0, 0, 0, 0, 0, 0x5a]), -1);
 });
 
-// 实测一代 G23 Pro（PAW3950）经 8K 接收器（093A:522C）：0x89 一直回 58%，鼠标状态包同时报 73%
+// Measured on a first-generation G23 Pro (PAW3950) behind its 8K receiver (093A:522C): 0x89 kept answering 58%
+// while the mouse's status report said 73%
 const G23PRO_8K_INFO = [0x89, 0x3a, 0x00, 0x00, 0x3b, 0x00, 0x00, 0x5a];
 const G23PRO_8K_STATUS = [0x49, 0x40, 0x04, 0x00, 0x3f, 0x3f, 0x21, 0x00];
 
@@ -74,7 +75,7 @@ async function readPowerVia(info, { wireless, is8K }) {
   return dev.power;
 }
 
-test('8K 接收器的 0x89 电量不采用（实测一代 G23 Pro 冻结在 58%），等状态包', async () => {
+test('8K receiver: 0x89 battery is not used (frozen at 58% on a first-generation G23 Pro), wait for a status report', async () => {
   assert.equal(await readPowerVia(G23PRO_8K_INFO, { wireless: true, is8K: true }), -1);
   const { parseInputReport } = await import('../src/protocol/device.js');
   const s = parseInputReport(new DataView(new Uint8Array(G23PRO_8K_STATUS).buffer));
@@ -82,7 +83,7 @@ test('8K 接收器的 0x89 电量不采用（实测一代 G23 Pro 冻结在 58%�
   assert.equal(s.charging, false);
 });
 
-test('有线和 1K 接收器仍用 0x89 电量', async () => {
+test('cable and 1K receiver still use the 0x89 battery', async () => {
   assert.equal(await readPowerVia([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a], { wireless: false, is8K: false }), 97);
   assert.equal(await readPowerVia([0x89, 0x3a, 0x01, 0, 0x02, 0, 0, 0x5a], { wireless: true, is8K: false }), 58);
 });

@@ -609,10 +609,11 @@ export class IncottDevice extends EventTarget {
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
     // r[2] 不是充电状态，不据此显示充电。电量和状态包一样显示原值（固件已平滑）。
-    // 实测 G23V2 无线（8K 接收器）时整包除 0x5A 外全为 0，此时电量未知，等待状态包。
-    // 实测一代 G23 Pro（PAW3950）经 8K 接收器时 0x89 一直回 3A 00 00 3B 00 00 5A（58%），43 小时、重启电脑后都不变，
-    // r[4] 也对不上当前 DPI 档，同时鼠标的状态包报 73% 到 77%：8K 接收器的 0x89 电量不可信，一律等状态包。
-    // 1K 接收器收不到状态包，仍用 0x89
+    // 实测 G23V2 无线（8K 接收器）时整包除 0x5A 外全为 0，此时电量未知，等待状态包
+    // Measured on a first-generation G23 Pro (PAW3950) behind its 8K receiver: 0x89 kept answering
+    // 3A 00 00 3B 00 00 5A (58%) for 43 hours and across a PC restart, r[4] did not match the current DPI tier,
+    // and the mouse's status reports said 73% to 77% meanwhile. The 8K receiver's 0x89 battery is not the
+    // mouse's, so wait for a status report. 1K receivers do not forward status reports and keep using 0x89.
     const fromReceiver8K = this.iswireless && this.is8KReceiver;
     if (!fromReceiver8K && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = r[1];
     this.curDpi = di != null ? di[0] : -1;
