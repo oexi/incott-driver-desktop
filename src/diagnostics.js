@@ -147,8 +147,9 @@ function decodeReply(cmd, d, pid) {
     case 0x8e:
       return `id=${[2, 3, 4, 5].map((i) => hex2(d[i])).join('')}${sub === 1 ? ` online=${d[6]}` : ''}`;
     case 0x89: {
-      // 固件 1.4.0.3（IDA）：有线时鼠标实时回答；接收器用最近一个状态包回答，收到过才有 0x5A。r[2] 是连接方式，
-      // 1K 接收器的 r[4] 是状态包第 3 字节（消抖 | 槽位 << 6），其它情况是 DPI 档
+      // 固件 1.4.0.3（IDA）：有线时鼠标实时回答；1K 接收器和 255 + 288 的 8K 接收器用最近一个状态包回答，
+      // 250 + 278 的 8K 接收器电量 / DPI 字节一直是 0（见 device.js readInfo），收到过状态包才有 0x5A。r[2] 是连接方式，
+      // 1K 接收器的 r[4] 是状态包第 3 字节（消抖 | 槽位 << 6），其它情况按 DPI 档显示
       const link = { 2: 'wired', 1: '1K receiver', 0: '8K receiver' }[d[2]] ?? `?${d[2]}`;
       const r4 = d[2] === 1 ? `status-d2=${hex2(d[4])}` : `dpi#=${d[4]}`;
       return `battery=${d[1]} link=${link} rate=${rateOf(d[3] & 15)} ${r4} r5=${d[5]} r6=${d[6]} magic=${d[7] === 0x5a ? 'OK' : 'missing (no status report cached yet)'}`;

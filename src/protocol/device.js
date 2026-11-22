@@ -597,8 +597,10 @@ export class IncottDevice extends EventTarget {
    * 137（0x89）设备信息。原版把它当成和状态包一样的布局（r[0] 电量、r[1] 回报率），但 r[0] 其实是命令回显。
    * 实际布局以官方桌面驱动为准（GamingMouse.exe sub_4455E0 / sub_4344A0），与实测 G23V2 回包一致：
    * r[1] 电量  r[2] 充电状态  r[3] 回报率  r[4] 当前 DPI 档  r[7] 固定 0x5A（官方驱动据此判断回包有效）
-   * 固件 1.4.0.3（IDA）：有线时由鼠标实时回答；接收器不转发 0x89，用最近一个状态包里的电量 / DPI 档回答，
-   * 收到过状态包才有 r[7] = 0x5A。r[2] 其实是连接方式（有线 2 / 1K 接收器 1 / 8K 接收器 0），不是充电状态。
+   * 固件 1.4.0.3（IDA）：有线时由鼠标实时回答。接收器不转发 0x89，自己回答，收到过状态包才有 r[7] = 0x5A：
+   * 1K 接收器和 255 + 288 的 8K 接收器用最近一个状态包填写；250 + 278 的 8K 接收器不写电量 / DPI 字节，一直是 0。
+   * 两种 8K 接收器都是双芯片，0x8F 回包 r[4] 分别是 0xFA / 0xF0（见下方）。
+   * r[2] 其实是连接方式（有线 2 / 1K 接收器 1 / 8K 接收器 0），不是充电状态。
    */
   async readInfo() {
     const r = await this._retry(() => this._fromData(137));
@@ -609,11 +611,13 @@ export class IncottDevice extends EventTarget {
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
     // r[2] 不是充电状态，不据此显示充电。电量和状态包一样显示原值（固件已平滑）。
-    // 实测 G23V2 无线（8K 接收器）时整包除 0x5A 外全为 0，此时电量未知，等待状态包
-    // Measured on a first-generation G23 Pro (PAW3950) behind its 8K receiver: 0x89 kept answering
-    // 3A 00 00 3B 00 00 5A (58%) for 43 hours and across a PC restart, r[4] did not match the current DPI tier,
-    // and the mouse's status reports said 73% to 77% meanwhile. The 8K receiver's 0x89 battery is not the
-    // mouse's, so wait for a status report. 1K receivers do not forward status reports and keep using 0x89.
+    // 8K 接收器时不采用 0x89 的电量，等状态包：
+    // - 250 + 278 的接收器（0x8F r[4] = 0xF0）不写电量字节，一直是 0（逆向；实测 G23V2 整包除 0x5A 外全为 0）
+    // - 255 + 288 / 277 的接收器（r[4] = 0xFA）据逆向会用状态包填写，这里会多等最多约 2 秒
+    // - 初代 G23 Pro（PAW3950）的 8K 接收器一直回 3A 00 00 3B 00 00 5A（58%），43 小时、重启电脑都不变，同期状态包是
+    //   73%～77%（PR #36）。升级包里的接收器固件都不会这样回，推测是更早的固件；不知道它报哪种 r[4]，所以统一不用
+    // 0x5A 只说明收到过状态包，挡不住这种值。有线（鼠标实时回答）和 1K 接收器（用状态包填写）照常采用：
+    // 它们同样会收到状态包，但 0x89 让电量在连接时就能显示
     const fromReceiver8K = this.iswireless && this.is8KReceiver;
     if (!fromReceiver8K && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = r[1];
     this.curDpi = di != null ? di[0] : -1;
