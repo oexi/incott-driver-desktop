@@ -71,7 +71,8 @@ function fakeHid({ model = 14, keys: keyOverride = {}, online = 1, zeroStar = fa
       case 0x85:
         // 不认识的子序号（例如 [0x85,6]）：和旧固件经接收器时一样，回显子序号，其余是上一条回包的残留
         if (b[1] < 1 || b[1] > 3) return [0x85, b[1], ...prev.slice(2)];
-        return [[0x85, 1, 8, 0], [0x85, 2, 3, 10, 0], [0x85, 3, 60, 0]][b[1] - 1].concat([0, 0, 0, 0]).slice(0, 8);
+        // 火力键：经 8K 接收器时间隔后面是上一条回包的残留（实测 09 85 02 03 0A F1）
+        return [[0x85, 1, 8, 0], [0x85, 2, 3, 10, 0xf1], [0x85, 3, 60, 0]][b[1] - 1].concat([0, 0, 0, 0]).slice(0, 8);
       case 0x86: {
         const c = b[1] === 9 ? 0 : keys[b[1]] || 0;
         return [0x86, b[1], c & 255, (c >> 8) & 255, (c >> 16) & 255, c >>> 24, 0, 0];
@@ -158,6 +159,7 @@ test('已连接：汇总里有型号码、PID、连接时 143/142/137 原文、�
   assert.match(text, /143 \(8F\) +\+ *\d+ms {2}09 8F 01 0E 02 F0 F1 00 00/);
   assert.match(text, /142 \(8E 01\) +\+ *\d+ms {2}09 8E 01 C8 D3 2F 63 01 00/);
   assert.match(text, /137 \(89\) +\+ *\d+ms {2}09 89 00 00 00 00 00 00 5A/);
+  assert.match(text, /count=3 interval=10 ms/, '火力键间隔只取 1 字节，不带残留');
   assert.match(text, /134 \(86 09\) +\+ *\d+ms {2}09 86 09 00 00 00 00 00 00/);
   assert.match(text, /input reports {2}4 total \(id1:1 id9:3\)/);
   assert.match(text, /last input reports:\n {2}\+ *\d+ms in#9 {2}3C 20 48 00 1F 1F 01 00/);

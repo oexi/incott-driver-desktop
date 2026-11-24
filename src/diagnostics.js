@@ -170,7 +170,8 @@ function decodeReply(cmd, d, pid) {
       return d[2] ? 'on' : 'off';
     case 0x85:
       if (sub === 1) return `${d[2]} ms`;
-      if (sub === 2) return `count=${d[2]} interval=${u16(d, 3)} ms`;
+      // 间隔只有 1 字节（[5,2,次数,间隔]）；经接收器时 d[4] 是上一条回包的残留（实测 09 85 02 03 0A F1）
+      if (sub === 2) return `count=${d[2]} interval=${d[3]} ms`;
       if (sub === 6) return d[2] <= 3 ? `slot ${d[2] + 1} (via receiver; may be leftover on old firmware)` : `not supported (${d[2]})`;
       if (sub === 7) return `firmware 1.4.x: ${hex2(d[2])} ${hex2(d[3])} color=${d[4]}`;
       return `${u16(d, 2)} s`;
@@ -286,7 +287,7 @@ function compareWithProfile(raw, pf, dev, { starUnsupported, firstRun }) {
   d = data('133,2');
   row(
     'fire (global)',
-    d && `${d[2]}x/${u16(d, 3)}ms`,
+    d && `${d[2]}x/${d[3]}ms`, // 间隔 1 字节，d[4] 经接收器时是残留
     fire ? `${Math.min(3, fire.itemdata & 65535)}x/${Math.min(255, (fire.itemdata >> 16) & 65535)}ms` : null,
     true
   );

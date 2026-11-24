@@ -156,6 +156,7 @@ export class MockHidDevice extends EventTarget {
         r[2] = sub;
         r[3] = v & 255;
         r[4] = v >> 8;
+        r[8] = this.last[2]; // 回显请求的轴（固件有线 / 无线回包都写）
         break;
       }
       case 131:

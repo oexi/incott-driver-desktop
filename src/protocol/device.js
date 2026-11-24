@@ -762,12 +762,21 @@ export class IncottDevice extends EventTarget {
     // [0x82, 档, 轴]：轴为 0 / 1 读 X，2 读 Y（固件 1.4.x，IDA：338.bin 0x82 回包）。以前只读 X，官方驱动设的分轴 Y
     // 读不回来（连接时被改成 Y = X），分轴的档每次同步都要重写。更早的固件没核实过（可能回 X，会把配置里的 Y 改掉），不读
     const xy = this.fw14 && getStDPI(this.sensor)?.xy !== false;
+    // 读 Y 的回包第 8 字节（r[7]）回显请求的轴：1.4.0.3、GHero、1.4.0.3-ble、1.4.0.4-ble 里全部 24 个鼠标固件
+    // 有线、无线两个回包函数都写；1K（276）和两种 8K 接收器（250 / 255 无线芯片 + 278 / 288 USB 芯片）都把回包 8 个字节原样转发（IDA）。
+    // 同一档先读 X 再读 Y，命令和档位完全一样；无线回包还没到时接收器交回上一帧（这一档的 X，r[7] = 0），
+    // 不看这个字节就会把 X 当成 Y，进入槽位时把配置里分开设的 Y 改成 X。经接收器时别的回包 r[7] 也可能残留 2，
+    // 但会被误认的只有同一档的 X 这一帧
+    const readY = async (i) => {
+      const r = await this._readSub(0x82, i, 2);
+      return r && r[7] === 2 ? r : null;
+    };
     for (let i = 0; i < dpiCount; i++) {
       r = await readSub(0x82, i);
       if (r) star.push(r[2], r[3]);
       out.dpi.push(r ? r[2] | (r[3] << 8) : null);
       if (!xy) continue;
-      r = await this._retry(() => this._readSub(0x82, i, 2));
+      r = await this._retry(() => readY(i));
       const y = r ? r[2] | (r[3] << 8) : null;
       // 读到 0（50 DPI）而 X 不是：多半是不支持的固件回的空值，当作不知道
       out.dpiy.push(y === 0 && out.dpi[i] ? null : y);
