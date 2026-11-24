@@ -63,6 +63,8 @@ function mouse({ fw = 'slots', wired = false } = {}) {
         return;
       }
     }
+    // late：这条读命令的无线回包还没到，接收器交回上一帧（不更新 last）
+    if (hid.late?.(Array.from(b))) return;
     if (hid.asleep > 0) {
       hid.last = Array.from(b);
       return;
@@ -795,4 +797,27 @@ test('1.4.x 固件：[0x82,档,2] 读回 Y——别的驱动设的 X / Y 分开�
   assert.deepEqual(hid.writes.filter((b) => b[0] === 2), [], '一致时分轴的档不用重写');
   assert.equal(hid.slots[0].dpiy[1], hw(1200), '鼠标里的 Y 没被改');
   await store.disconnect('test');
+});
+
+test('1.4.x 固件：读 Y 的回包迟到时，接收器交回的同一档 X 不会被当成 Y（看回包第 8 字节的轴回显）', async () => {
+  for (const lateTimes of [1, 3]) {
+    storeProfiles({ edit: (p) => (p.dpiy[2] = 2000) }); // 配置 1 第 3 档 X 1600 / Y 2000
+    const hid = mouse();
+    fillSlots(hid);
+    const hw = (d) => C.getHwForDpi(d, C.SENSOR_3950);
+    hid.slots[0].dpiy = [];
+    hid.slots[0].dpiy[2] = hw(2000);
+    let left = lateTimes;
+    let stale = 0;
+    hid.late = (b) => b[0] === 0x82 && b[1] === 2 && b[2] === 2 && left-- > 0 && ++stale > 0;
+    await connect(hid);
+    assert.equal(stale, lateTimes, '读 Y 时拿到过旧帧');
+    const pf = pl()[0];
+    assert.equal(pf.dpi[2], 1600);
+    assert.equal(pf.dpiy[2], 2000, `Y 没被改成 X（迟到 ${lateTimes} 次）`);
+    assert.ok(!toasts().some((m) => m.includes('软件外改过')));
+    assert.equal(hid.slots[0].dpiy[2], hw(2000), '鼠标里的 Y 没被改');
+    if (lateTimes === 1) assert.deepEqual(hid.writes.filter((b) => b[0] === 2), [], '重读拿到了 Y，不用重写');
+    await store.disconnect('test');
+  }
 });
