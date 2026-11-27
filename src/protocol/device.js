@@ -57,6 +57,7 @@ import {
   apSleepTime,
 } from './constants.js';
 import { macroToHw } from './macro.js';
+import { correctPower } from './battery.js';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -221,7 +222,8 @@ export function parseInputReport(data, layout = null) {
       layoutSure: lay.sure,
       profileIndex: null,
       charging: d[0] !== 0,
-      power: Math.min(d[1], 100),
+      power: Math.min(d[1], 100), // 更早固件的换算没看过，不修正
+      powerFw: Math.min(d[1], 100),
       rate: d[3] <= 6 ? RATE_HW[d[3]] : null,
       dpiIndex: d[2],
       debounce: null,
@@ -232,13 +234,15 @@ export function parseInputReport(data, layout = null) {
   const rate = d[1] & 15;
   const lod = d[6] >> 4;
   const motion = d[6] & 15;
+  const powerFw = Math.min(d[0] & 127, 100);
   return {
     layout: 'packed',
     layoutSure: lay.sure,
     profileIndex: (d[2] & 192) >> 6,
     charging: (d[0] & 128) !== 0,
-    // 固件已经做了平滑（每 3 次采样一次、连续 5 次不同才改，IDA：sub_1000C0B4），直接显示
-    power: Math.min(d[0] & 127, 100),
+    // 固件的换算会从 57% 直接掉到 45%，补平后显示（见 battery.js）；powerFw 是固件原值
+    power: correctPower(powerFw),
+    powerFw,
     rate: rate <= 6 ? RATE_HW[rate] : null,
     dpiIndex: (d[1] & 240) >> 4,
     debounce: d[2] & 63,
@@ -344,6 +348,7 @@ export class IncottDevice extends EventTarget {
     this.curpid = 0;
     this.online = false;
     this.power = -1;
+    this.powerFw = -1; // 固件报的原值（power 是补平断档后的，见 battery.js）
     this.charging = false;
     this.curDpi = -1;
     this.dpiLevels = -1;
@@ -610,7 +615,7 @@ export class IncottDevice extends EventTarget {
     if (di != null && di.length <= 0) return false;
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
-    // r[2] 不是充电状态，不据此显示充电。电量和状态包一样显示原值（固件已平滑）。
+    // r[2] 不是充电状态，不据此显示充电。电量和状态包一样补平固件的断档后显示（见 battery.js），powerFw 是原值。
     // 8K 接收器的 0x89 电量只在 r[4]（DPI 档）等于 0x83 读到的当前档时才采用，否则等状态包。
     // 会填写的接收器用同一个状态包同时写电量和 DPI 档（d0 & 0x7F、d1 >> 4），两者对得上才说明这个电量是跟着状态包更新的：
     // - 255 + 288 / 277 的接收器（0x8F r[4] = 0xFA）据逆向会这样填写，能通过
@@ -622,7 +627,10 @@ export class IncottDevice extends EventTarget {
     // 它们同样会收到状态包，但 0x89 让电量在连接时就能显示
     const fromReceiver8K = this.iswireless && this.is8KReceiver;
     const dpiMatches = di != null && r[4] === di[0];
-    if ((!fromReceiver8K || dpiMatches) && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = r[1];
+    if ((!fromReceiver8K || dpiMatches) && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) {
+      this.powerFw = r[1];
+      this.power = correctPower(r[1]);
+    }
     this.curDpi = di != null ? di[0] : -1;
     this.dpiLevels = di != null ? di[1] : -1;
     return true;

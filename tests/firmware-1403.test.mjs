@@ -34,11 +34,12 @@ async function idle() {
 
 /* ------------------------------------------------------------ 状态包 */
 
-test('状态包：实测 G23V2 的紧凑布局，带消抖 / 当前档 DPI / LOD / Motion Sync，电量是原值', () => {
+test('状态包：实测 G23V2 的紧凑布局，带消抖 / 当前档 DPI / LOD / Motion Sync，电量补平固件断档', () => {
   const s = parseInputReport(dv([0x3c, 0x20, 0x48, 0x00, 0x1f, 0x1f, 0x01, 0x00]));
   assert.equal(s.layout, 'packed');
   assert.equal(s.layoutSure, true);
-  assert.equal(s.power, 60);
+  assert.equal(s.powerFw, 60);
+  assert.equal(s.power, 57);
   assert.equal(s.charging, false);
   assert.equal(s.rate, 1000);
   assert.equal(s.dpiIndex, 2);
@@ -48,7 +49,7 @@ test('状态包：实测 G23V2 的紧凑布局，带消抖 / 当前档 DPI / LOD
   assert.equal(s.dpiY, 31);
   assert.equal(s.lod, 0);
   assert.equal(s.motion, 1);
-  assert.equal(parseInputReport(dv([0x80 | 97, 0x10, 0, 0x21, 0x2c, 0x01, 0x20, 0])).power, 97);
+  assert.equal(parseInputReport(dv([0x80 | 97, 0x10, 0, 0x21, 0x2c, 0x01, 0x20, 0])).power, 97, '67% 以上不变');
   const big = parseInputReport(dv([50, 0, 0, 0x21, 0x2c, 0x01, 0x20, 0]));
   assert.deepEqual([big.dpiX, big.dpiY, big.lod, big.motion], [0x12c, 0x201, 2, 0]);
 });

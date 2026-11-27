@@ -69,6 +69,7 @@ export const state = reactive({
     is8K: false,
     pink: false,
     power: -1,
+    powerFw: -1, // 固件报的原值（power 是补平断档后的）
     charging: false,
     rate: 0,
     productName: '',
@@ -506,7 +507,7 @@ async function doConnect(hid) {
   }
   const waited = dev.onlineWaitMs == null ? '' : ` (mouse ${dev.linkOnline === 0 ? 'still offline' : 'came online'} after ${dev.onlineWaitMs}ms)`;
   logEvent(
-    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}${waited}`
+    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} fw=${dev.powerFw} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}${waited}`
   );
   if (raw) {
     const keys = raw.keys.map((c) => (c == null ? '-' : (c >>> 0).toString(16))).join(' ');
@@ -1185,6 +1186,7 @@ function enterDevice(dev, raw, hw = null) {
     is8K: dev.is8KReceiver,
     pink: dev.isPink,
     power: dev.power, // 取自 137 回包（无效时为 -1，等待设备主动上报）
+    powerFw: dev.powerFw,
     charging: false,
     rate: dev.curUSBRate,
     productName: dev.hid.productName || '',
@@ -1356,12 +1358,14 @@ let lastStatus = null;
 function logStatusChange(s) {
   const p = lastStatus;
   lastStatus = s;
-  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} slot=${s.profileIndex} power=${s.power} charging=${s.charging}`);
+  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} slot=${s.profileIndex} power=${s.power} fw=${s.powerFw} charging=${s.charging}`);
   const diff = [];
   if (p.rate !== s.rate) diff.push(`rate ${p.rate}→${s.rate}`);
   if (p.dpiIndex !== s.dpiIndex) diff.push(`dpi# ${p.dpiIndex}→${s.dpiIndex}`);
   if (p.profileIndex !== s.profileIndex) diff.push(`slot ${p.profileIndex}→${s.profileIndex}`);
   if (p.charging !== s.charging) diff.push(`charging ${p.charging}→${s.charging}`);
+  // 固件原值一起记下，便于实机核对补平断档（battery.js）
+  if (p.powerFw !== s.powerFw) diff.push(`power ${p.power}→${s.power} (fw ${p.powerFw}→${s.powerFw})`);
   if (diff.length) logEvent(`status: ${diff.join(', ')}${state.applying ? ' (while applying)' : ''}`);
 }
 
@@ -1372,6 +1376,7 @@ function onStatus(e) {
   // 界面显示的电量 / 充电 / 回报率随时更新（写入期间也一样），只有改写配置要等写入结束
   state.info.charging = s.charging;
   state.info.power = s.power;
+  state.info.powerFw = s.powerFw;
   if (s.rate) state.info.rate = s.rate;
   // 旧布局的状态包里没有槽位
   if (s.profileIndex != null) {
