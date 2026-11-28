@@ -3,8 +3,9 @@ import { computed } from 'vue';
 const props = defineProps({ level: { type: Number, default: 0 }, charging: Boolean });
 const color = computed(() => {
   if (props.charging) return 'var(--ok)';
-  if (props.level <= 20) return 'var(--danger)';
-  if (props.level <= 40) return 'var(--warn)';
+  // 电量按电压重新换算后低电量段不再虚高（见 battery.js），阈值随之下调
+  if (props.level <= 10) return 'var(--danger)';
+  if (props.level <= 20) return 'var(--warn)';
   return 'var(--ok)';
 });
 const w = computed(() => Math.max(2, Math.round((Math.min(100, props.level) / 100) * 18)));

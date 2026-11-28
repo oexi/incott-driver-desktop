@@ -821,3 +821,89 @@ test('1.4.x 固件：读 Y 的回包迟到时，接收器交回的同一档 X �
     await store.disconnect('test');
   }
 });
+
+/* ------------------------------------------------------------ 电量：满电学习 / 已充满（battery.js） */
+
+const { firmwareToAdc } = await import('../src/protocol/battery.js');
+
+/** 模拟时钟：满电学习要等充电结束约 1 分钟 */
+function fakeClock() {
+  const real = Date.now;
+  let now = real();
+  Date.now = () => now;
+  return { advance: (ms) => (now += ms), restore: () => (Date.now = real) };
+}
+
+async function status(hid, { power, charging }) {
+  hid.state.power = power;
+  hid.state.charging = charging;
+  hid.emitStatus();
+  await idle();
+}
+
+test('满电学习：充电标志消失约 1 分钟后固件值 ≥ 85%，记下满电 adc，下次连接沿用', async () => {
+  reset();
+  const clock = fakeClock();
+  try {
+    const hid = mouse();
+    await connect(hid);
+    const key = `batteryfull_${store.state.info.devname}`;
+    await status(hid, { power: 92, charging: true });
+    assert.equal(store.state.info.power, 99, '充电中最多 99%');
+    await status(hid, { power: 92, charging: false });
+    assert.equal(store.state.device.fullAdc, 590, '刚停充，读数还没回落，先不学');
+    clock.advance(30 * 1000);
+    await status(hid, { power: 90, charging: false });
+    assert.equal(store.state.device.fullAdc, 590);
+    clock.advance(31 * 1000);
+    await status(hid, { power: 90, charging: false });
+    assert.equal(store.state.device.fullAdc, firmwareToAdc(90));
+    assert.equal(JSON.parse(mem[key]).adc, firmwareToAdc(90));
+    assert.equal(store.state.info.power, 100, '学到后固件 90% 就是满电');
+    await store.disconnect('test');
+
+    const hid2 = mouse();
+    hid2.state.power = 80;
+    await connect(hid2);
+    assert.equal(store.state.device.fullAdc, firmwareToAdc(90), '连接时取学到的值');
+    await status(hid2, { power: 80, charging: false });
+    assert.equal(store.state.info.power, 88);
+    await store.disconnect('test');
+  } finally {
+    clock.restore();
+  }
+});
+
+test('满电学习：中途拔线（停充时低于 85%）、或 10 分钟后才有状态包，都不学', async () => {
+  reset();
+  const clock = fakeClock();
+  try {
+    const hid = mouse();
+    await connect(hid);
+    await status(hid, { power: 70, charging: true });
+    await status(hid, { power: 70, charging: false });
+    clock.advance(61 * 1000);
+    await status(hid, { power: 70, charging: false });
+    assert.equal(store.state.device.fullAdc, 590);
+    await status(hid, { power: 92, charging: true });
+    await status(hid, { power: 92, charging: false });
+    clock.advance(11 * 60 * 1000);
+    await status(hid, { power: 90, charging: false });
+    assert.equal(store.state.device.fullAdc, 590);
+    assert.equal(mem[`batteryfull_${store.state.info.devname}`], undefined);
+    await store.disconnect('test');
+  } finally {
+    clock.restore();
+  }
+});
+
+test('有线：插着线、充电标志消失就是已充满，显示 100%', async () => {
+  reset();
+  const hid = mouse({ wired: true });
+  await connect(hid);
+  await status(hid, { power: 90, charging: true });
+  assert.deepEqual([store.state.info.power, store.state.info.full, store.state.info.charging], [96, false, true]);
+  await status(hid, { power: 92, charging: false });
+  assert.deepEqual([store.state.info.power, store.state.info.full, store.state.info.charging], [100, true, false]);
+  await store.disconnect('test');
+});

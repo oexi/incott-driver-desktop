@@ -57,6 +57,7 @@ import {
   apSleepTime,
 } from './constants.js';
 import { macroToHw } from './macro.js';
+import { batteryView, DEFAULT_FULL_ADC, validFullAdc } from './battery.js';
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -211,8 +212,11 @@ export function statusLayoutOf(d, layout = null) {
   return { layout: layout || (old ? 'old' : 'packed'), sure: false };
 }
 
-/** 解析设备主动上报的状态（原版 irServer）；layout 见 statusLayoutOf */
-export function parseInputReport(data, layout = null) {
+/**
+ * 解析设备主动上报的状态（原版 irServer）；layout 见 statusLayoutOf
+ * @param battery 电量换算用：fullAdc 这只鼠标的满电 adc、wired 是否有线连接（见 battery.js batteryView）
+ */
+export function parseInputReport(data, layout = null, battery = {}) {
   const d = Array.from({ length: 8 }, (_, i) => (i < data.byteLength ? data.getUint8(i) : 0));
   const lay = statusLayoutOf(d, layout);
   if (lay.layout === 'old') {
@@ -221,7 +225,9 @@ export function parseInputReport(data, layout = null) {
       layoutSure: lay.sure,
       profileIndex: null,
       charging: d[0] !== 0,
-      power: Math.min(d[1], 100),
+      power: Math.min(d[1], 100), // 更早固件的换算没看过，原样显示
+      powerFw: Math.min(d[1], 100),
+      full: false,
       rate: d[3] <= 6 ? RATE_HW[d[3]] : null,
       dpiIndex: d[2],
       debounce: null,
@@ -232,13 +238,18 @@ export function parseInputReport(data, layout = null) {
   const rate = d[1] & 15;
   const lod = d[6] >> 4;
   const motion = d[6] & 15;
+  const powerFw = Math.min(d[0] & 127, 100);
+  const charging = (d[0] & 128) !== 0;
+  // 固件的换算有断档、充满到不了 100%、低电量虚高，按电压重新换算后显示（见 battery.js）；powerFw 是固件原值
+  const view = batteryView(powerFw, { ...battery, charging });
   return {
     layout: 'packed',
     layoutSure: lay.sure,
     profileIndex: (d[2] & 192) >> 6,
-    charging: (d[0] & 128) !== 0,
-    // 固件已经做了平滑（每 3 次采样一次、连续 5 次不同才改，IDA：sub_1000C0B4），直接显示
-    power: Math.min(d[0] & 127, 100),
+    charging,
+    power: view.power,
+    powerFw,
+    full: view.full, // 有线、插着线不再充电：已充满
     rate: rate <= 6 ? RATE_HW[rate] : null,
     dpiIndex: (d[1] & 240) >> 4,
     debounce: d[2] & 63,
@@ -285,9 +296,11 @@ export function withTimeout(p, ms, what = 'hid') {
 const isTimeout = (err) => /timeout/i.test(String(err?.message || err));
 
 export class IncottDevice extends EventTarget {
-  constructor(hid) {
+  /** @param opts.fullAdcFor (devname) => 这只鼠标学到的满电 adc（见 battery.js），没有时返回 null */
+  constructor(hid, opts = {}) {
     super();
     this.hid = hid;
+    this._opts = opts;
     this.clearState();
     this._chain = Promise.resolve();
     // 原始收发记录（诊断信息用）：不随 clearState 清空，连接失败后仍可导出
@@ -317,7 +330,7 @@ export class IncottDevice extends EventTarget {
       this._push(this.inputLog, INPUT_LOG_MAX, { t: Date.now() - this._t0, dir: `in#${e.reportId}`, hex: toHex(e.data) });
       // 官方驱动的读线程只处理 Report ID 9（GamingMouse.exe sub_446200），其它报告不是状态包
       if (e.reportId !== REPORT_ID) return;
-      const s = parseInputReport(e.data, this.statusLayout);
+      const s = parseInputReport(e.data, this.statusLayout, { fullAdc: this.fullAdc, wired: !this.iswireless });
       if (s.layoutSure) this.statusLayout = s.layout;
       this.dispatchEvent(new CustomEvent('status', { detail: s }));
     };
@@ -344,6 +357,8 @@ export class IncottDevice extends EventTarget {
     this.curpid = 0;
     this.online = false;
     this.power = -1;
+    this.powerFw = -1; // 固件报的原值（power 是按电压重新换算后的，见 battery.js）
+    this.fullAdc = DEFAULT_FULL_ADC; // 这只鼠标充满时的 adc：连接时按型号取学到的值，没有时用固件的满电点
     this.charging = false;
     this.curDpi = -1;
     this.dpiLevels = -1;
@@ -485,6 +500,8 @@ export class IncottDevice extends EventTarget {
       // 143 一个回包都没收到是"没有响应"（接收器 / 鼠标无响应、读写超时），收到了但不认识才是"不支持"
       throw new Error(this.replies[143] ? 'UNSUPPORTED_DEVICE' : 'NO_RESPONSE');
     }
+    const learned = this._opts.fullAdcFor?.(this.devname);
+    this.fullAdc = validFullAdc(learned) ? learned : DEFAULT_FULL_ADC;
     if (!(await this.readMatchInfo())) {
       // 有回包、只是不是 0x8E 的（固件不认识这条命令；旧版 GHERO 专用官方驱动从不发它）：照样连接，在线状态记为未知。
       // 一个回包都没有（超时 / 读写错误）才算读取失败，免得连上一个根本不响应的设备
@@ -610,7 +627,8 @@ export class IncottDevice extends EventTarget {
     if (di != null && di.length <= 0) return false;
     const rate = r[3] & 15;
     if (rate <= 6) this.curUSBRate = RATE_HW[rate];
-    // r[2] 不是充电状态，不据此显示充电。电量和状态包一样显示原值（固件已平滑）。
+    // r[2] 不是充电状态，不据此显示充电。电量和状态包一样按电压重新换算后显示（见 battery.js），powerFw 是原值；
+    // 这里不知道是否在充电，不显示"已充满"，等状态包。
     // 8K 接收器的 0x89 电量只在 r[4]（DPI 档）等于 0x83 读到的当前档时才采用，否则等状态包。
     // 会填写的接收器用同一个状态包同时写电量和 DPI 档（d0 & 0x7F、d1 >> 4），两者对得上才说明这个电量是跟着状态包更新的：
     // - 255 + 288 / 277 的接收器（0x8F r[4] = 0xFA）据逆向会这样填写，能通过
@@ -622,7 +640,10 @@ export class IncottDevice extends EventTarget {
     // 它们同样会收到状态包，但 0x89 让电量在连接时就能显示
     const fromReceiver8K = this.iswireless && this.is8KReceiver;
     const dpiMatches = di != null && r[4] === di[0];
-    if ((!fromReceiver8K || dpiMatches) && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) this.power = r[1];
+    if ((!fromReceiver8K || dpiMatches) && r[7] === 0x5a && r[1] > 0 && r[1] <= 100) {
+      this.powerFw = r[1];
+      this.power = batteryView(r[1], { fullAdc: this.fullAdc }).power;
+    }
     this.curDpi = di != null ? di[0] : -1;
     this.dpiLevels = di != null ? di[1] : -1;
     return true;

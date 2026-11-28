@@ -96,7 +96,8 @@ test('只有 Report ID 9 的输入报告才当作状态包', () => {
   dev._onInput({ device: dev.hid, reportId: 3, data });
   dev._onInput({ device: dev.hid, reportId: 9, data });
   assert.equal(got.length, 1);
-  assert.equal(got[0].power, 80);
+  assert.equal(got[0].powerFw, 80);
+  assert.equal(got[0].power, 84); // 按电压换算（battery.js）
   assert.deepEqual(
     dev.inputLog.map((e) => e.dir),
     ['in#3', 'in#9']
