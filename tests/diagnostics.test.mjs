@@ -367,7 +367,8 @@ test('issue #11：1K 接收器连接、配置只有 1 档 DPI——不读 0x88�
   granted = [hid];
   const dev = new IncottDevice(hid);
   await dev.open();
-  assert.equal(dev.power, 3);
+  assert.equal(dev.powerFw, 3); // 旧 1K 接收器回的其实是回报率代码
+  assert.equal(dev.power, 0);
   assert.equal(dev.is8KReceiver, false);
   const before = hid.sent.length;
   const m = await dev.readSlot(6);

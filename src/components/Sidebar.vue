@@ -47,9 +47,10 @@ const dpiColor = computed(() => {
 
       <div class="battery">
         <template v-if="state.info.power >= 0">
-          <BatteryIcon :level="state.info.power" :charging="state.info.charging" />
+          <BatteryIcon :level="state.info.power" :charging="state.info.charging || state.info.full" />
           <span class="pct num">{{ state.info.power }}%</span>
           <span v-if="state.info.charging" class="muted chg"><BatteryCharging :size="13" /> {{ t.charging }}</span>
+          <span v-else-if="state.info.full" class="muted chg"><BatteryCharging :size="13" /> {{ t.charged }}</span>
         </template>
         <span v-else class="muted sync"><span class="dot-pulse"></span>{{ t.batteryUnknown }}</span>
       </div>

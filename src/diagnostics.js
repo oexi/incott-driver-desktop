@@ -574,8 +574,8 @@ export async function collectDiagnostics({ busy = null, sysHid = null } = {}) {
           extra: [
             `connected      ${ago(dev.connectedAt)} · last input ${ago(dev.lastInputAt)}`,
             `parsed         ${dev.devname} sensor=0x${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} pink=${dev.isPink}`,
-            `at connect     rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} fw=${dev.powerFw} onboard=${dev.curOnBoard}`,
-            `ui now         power=${state.info.power} fw=${state.info.powerFw} charging=${state.info.charging} rate=${state.info.rate} profile=${state.curIndex + 1} slot=${state.slot == null ? '?' : state.slot + 1} firstRun=${state.firstRun} pending=${state.pending} applying=${state.applying}`,
+            `at connect     rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} fw=${dev.powerFw} fullAdc=${dev.fullAdc} onboard=${dev.curOnBoard}`,
+            `ui now         power=${state.info.power} fw=${state.info.powerFw} full=${state.info.full} charging=${state.info.charging} rate=${state.info.rate} profile=${state.curIndex + 1} slot=${state.slot == null ? '?' : state.slot + 1} firstRun=${state.firstRun} pending=${state.pending} applying=${state.applying}`,
             ...(dev.applyError ? [`last apply err ${dev.applyError}`] : []),
           ],
         })

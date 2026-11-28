@@ -9,6 +9,7 @@ import { STMacro, STMacroList, saveMacros, loadMacros, macroToHw } from './proto
 import { MockHidDevice } from './protocol/mock.js';
 import { t, setLang } from './i18n.js';
 import { logEvent } from './diaglog.js';
+import { batteryView, fullAdcFrom, firmwareToAdc } from './protocol/battery.js';
 
 const desktop = typeof window !== 'undefined' ? window.desktop : undefined;
 const USE_MOCK = typeof location !== 'undefined' && /[?&]mock\b/.test(location.search);
@@ -69,7 +70,8 @@ export const state = reactive({
     is8K: false,
     pink: false,
     power: -1,
-    powerFw: -1, // 固件报的原值（power 是补平断档后的）
+    powerFw: -1, // 固件报的原值（power 是按电压重新换算后的，见 battery.js）
+    full: false, // 有线、插着线已不再充电：已充满
     charging: false,
     rate: 0,
     productName: '',
@@ -458,7 +460,7 @@ function connectTo(hid) {
 async function doConnect(hid) {
   state.phase = 'connecting';
   state.error = null;
-  const dev = markRaw(new IncottDevice(hid));
+  const dev = markRaw(new IncottDevice(hid, { fullAdcFor: (name) => loadJson(batteryFullKey(name))?.adc ?? null }));
   logEvent(`connect start ${hid.productId?.toString(16)} "${hid.productName || ''}" opened=${hid.opened}`);
   diag.connecting = { dev, since: Date.now() };
   try {
@@ -507,7 +509,7 @@ async function doConnect(hid) {
   }
   const waited = dev.onlineWaitMs == null ? '' : ` (mouse ${dev.linkOnline === 0 ? 'still offline' : 'came online'} after ${dev.onlineWaitMs}ms)`;
   logEvent(
-    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} fw=${dev.powerFw} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}${waited}`
+    `connected ${dev.devname} code=${dev.modelCode} sensor=${dev.sensor.toString(16)} wireless=${dev.iswireless} 8K=${dev.is8KReceiver} rate=${dev.curUSBRate} dpi=${dev.curDpi}/${dev.dpiLevels} power=${dev.power} fw=${dev.powerFw} fullAdc=${dev.fullAdc} onboard=${dev.curOnBoard} hwSlot=${hw == null ? '-' : hw + 1}${waited}`
   );
   if (raw) {
     const keys = raw.keys.map((c) => (c == null ? '-' : (c >>> 0).toString(16))).join(' ');
@@ -629,6 +631,8 @@ const modeKey = (devname) => `profilemode_${devname}`; // 'pc' | 'slots'
 const slotStateKey = (devname) => `hwslots_${devname}`;
 // 首次使用时鼠标不在线（无线鼠标在休眠 / 没开）：配置只是默认值，下次连上时仍按首次使用从鼠标读进来
 const unreadKey = (devname) => `profilesunread_${devname}`;
+// 这只鼠标充满时的 adc（见 battery.js），{ adc, fw, at }
+const batteryFullKey = (devname) => `batteryfull_${devname}`;
 // 旧版本（跟随硬件槽位）留下的记录
 const LEGACY_KEYS = ['slotsync_', 'slotstate_', 'softswitch_', 'statusseen_'];
 
@@ -1187,6 +1191,7 @@ function enterDevice(dev, raw, hw = null) {
     pink: dev.isPink,
     power: dev.power, // 取自 137 回包（无效时为 -1，等待设备主动上报）
     powerFw: dev.powerFw,
+    full: false,
     charging: false,
     rate: dev.curUSBRate,
     productName: dev.hid.productName || '',
@@ -1244,6 +1249,8 @@ function enterDevice(dev, raw, hw = null) {
   persist();
 
   lastStatus = null;
+  chargeEndedAt = null;
+  wasCharging = false;
   dev.addEventListener('status', onStatus);
   state.phase = 'ready';
   if (push) queueSync(state.curIndex);
@@ -1358,15 +1365,57 @@ let lastStatus = null;
 function logStatusChange(s) {
   const p = lastStatus;
   lastStatus = s;
-  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} slot=${s.profileIndex} power=${s.power} fw=${s.powerFw} charging=${s.charging}`);
+  if (!p) return logEvent(`status first: rate=${s.rate} dpi#=${s.dpiIndex} slot=${s.profileIndex} power=${s.power} fw=${s.powerFw} adc=${firmwareToAdc(s.powerFw)} full=${s.full} charging=${s.charging}`);
   const diff = [];
   if (p.rate !== s.rate) diff.push(`rate ${p.rate}→${s.rate}`);
   if (p.dpiIndex !== s.dpiIndex) diff.push(`dpi# ${p.dpiIndex}→${s.dpiIndex}`);
   if (p.profileIndex !== s.profileIndex) diff.push(`slot ${p.profileIndex}→${s.profileIndex}`);
   if (p.charging !== s.charging) diff.push(`charging ${p.charging}→${s.charging}`);
-  // 固件原值一起记下，便于实机核对补平断档（battery.js）
-  if (p.powerFw !== s.powerFw) diff.push(`power ${p.power}→${s.power} (fw ${p.powerFw}→${s.powerFw})`);
+  // 固件原值和还原的 adc 一起记下，便于实机核对换算（battery.js）
+  if (p.powerFw !== s.powerFw) diff.push(`power ${p.power}→${s.power} (fw ${p.powerFw}→${s.powerFw}, adc ${firmwareToAdc(p.powerFw)}→${firmwareToAdc(s.powerFw)})`);
+  if (p.full !== s.full) diff.push(`full ${p.full}→${s.full}`);
   if (diff.length) logEvent(`status: ${diff.join(', ')}${state.applying ? ' (while applying)' : ''}`);
+}
+
+/**
+ * 满电学习：充电标志消失约 1 分钟后（固件的读数只降不升，要连续 6 次更低才更新，约 14 秒），固件值仍 ≥ 85%
+ * 就把对应的 adc 记成这只鼠标的满电值（battery.js 以它为 4.2 V）。有线时标志消失就是充满了；
+ * 无线时也可能是中途拔了线，那时读数通常低于 85%，不会学到。太久以后（10 分钟）鼠标已经用掉一些电，不再学。
+ */
+const FULL_SETTLE_MS = 60 * 1000;
+const FULL_WINDOW_MS = 10 * 60 * 1000;
+let chargeEndedAt = null; // 这次连接里充电标志消失的时间
+let wasCharging = false;
+function learnFullCharge(s) {
+  const dev = state.device;
+  if (!dev || s.layout !== 'packed') return;
+  if (s.charging) {
+    wasCharging = true;
+    chargeEndedAt = null;
+    return;
+  }
+  if (wasCharging) {
+    wasCharging = false;
+    chargeEndedAt = Date.now();
+    return;
+  }
+  if (chargeEndedAt == null) return;
+  const dt = Date.now() - chargeEndedAt;
+  if (dt < FULL_SETTLE_MS) return;
+  chargeEndedAt = null;
+  if (dt > FULL_WINDOW_MS) return;
+  const adc = fullAdcFrom(s.powerFw);
+  if (adc == null) {
+    logEvent(`battery: charging stopped at fw=${s.powerFw}%, not treated as full`);
+    return;
+  }
+  const was = dev.fullAdc;
+  dev.fullAdc = adc;
+  saveJson(batteryFullKey(dev.devname), { adc, fw: s.powerFw, at: new Date().toISOString() });
+  const v = batteryView(s.powerFw, { fullAdc: adc, charging: s.charging, wired: !dev.iswireless });
+  logEvent(`battery: full learned adc=${adc} (fw=${s.powerFw}%, was ${was}) → power ${state.info.power}→${v.power}`);
+  state.info.power = v.power;
+  state.info.full = v.full;
 }
 
 /** 原版 irServer：处理鼠标主动上报的状态 */
@@ -1377,6 +1426,8 @@ function onStatus(e) {
   state.info.charging = s.charging;
   state.info.power = s.power;
   state.info.powerFw = s.powerFw;
+  state.info.full = s.full;
+  learnFullCharge(s);
   if (s.rate) state.info.rate = s.rate;
   // 旧布局的状态包里没有槽位
   if (s.profileIndex != null) {

@@ -49,7 +49,7 @@ async function readPower(info) {
 }
 
 test('电量取自 r[1]（实测 G23V2 有线回包：0x61 = 97%）', async () => {
-  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 97, "不按 10% 取整；67% 以上不受补平断档影响，与固件相同");
+  assert.equal(await readPower([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a]), 100, '固件 97% 高于充满点（约 94%），按电压换算是 100%');
   assert.equal(await readPower([0x89, 100, 0, 0, 0, 0, 0, 0x5a]), 100);
 });
 
@@ -79,13 +79,14 @@ test('8K receiver: the frozen 58% from a first-generation G23 Pro is not used (r
   assert.equal(await readPowerVia(G23PRO_8K_INFO, { wireless: true, is8K: true }), -1);
   const { parseInputReport } = await import('../src/protocol/device.js');
   const s = parseInputReport(new DataView(new Uint8Array(G23PRO_8K_STATUS).buffer));
-  assert.equal(s.power, 73);
+  assert.equal(s.powerFw, 73);
+  assert.equal(s.power, 74); // 按电压换算（battery.js）
   assert.equal(s.charging, false);
 });
 
 test('cable and 1K receiver still use the 0x89 battery', async () => {
-  assert.equal(await readPowerVia([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a], { wireless: false, is8K: false }), 97);
-  assert.equal(await readPowerVia([0x89, 0x3a, 0x01, 0, 0x02, 0, 0, 0x5a], { wireless: true, is8K: false }), 54); // 固件 58%，补平断档
+  assert.equal(await readPowerVia([0x89, 0x61, 0x02, 3, 0x02, 0, 0, 0x5a], { wireless: false, is8K: false }), 100); // 固件 97%，按电压换算
+  assert.equal(await readPowerVia([0x89, 0x3a, 0x01, 0, 0x02, 0, 0, 0x5a], { wireless: true, is8K: false }), 46); // 固件 58%，按电压换算
 });
 
 // 实测：给 278 补上电量 / DPI 档写入后，8K 接收器回 89 3B 00 00 02 00 00 5A，同期状态包 3B 20 08 00 1F 1F 01（59%，DPI 档 2）
@@ -93,7 +94,7 @@ const PATCHED_278_INFO = [0x89, 0x3b, 0x00, 0x00, 0x02, 0x00, 0x00, 0x5a];
 const EIGHT_K = { wireless: true, is8K: true };
 
 test('8K 接收器：0x89 的 DPI 档与 0x83 当前档一致时采用电量', async () => {
-  assert.equal(await readPowerVia(PATCHED_278_INFO, EIGHT_K), 55); // DIF 当前档为 2；固件 59% 补平断档后是 55%
+  assert.equal(await readPowerVia(PATCHED_278_INFO, EIGHT_K), 47); // DIF 当前档为 2；固件 59%，按电压换算
 });
 
 test('8K 接收器：DPI 档对不上、0x83 读取失败或原厂 278 回 0 时不采用', async () => {
